@@ -320,6 +320,16 @@ builder is unit-tested.
   app/store state — NEVER on the 3D WebGL canvas pixels** (deliberately out of
   scope to stay stable). Expose store state through a test-only accessor gated
   behind a `?e2e=1` flag. CI runs both Vitest and Playwright on push/PR.
+- **CI guard scripts** (`scripts/`, run via `npm run guards`, wired into CI):
+  - **`guard:ground-seam`** enforces the ground-height-seam rule by failing on
+    any inline **literal Y-position** assignment (`position={[x, <literal>, z]}`,
+    `.position.y = <literal>`, `.position.setY/​.set`). Vertical placement must
+    route through `groundHeightAt` / a surface top. Legitimate exceptions (e.g.
+    the lighting rig) live in a justified allowlist at the top of
+    `scripts/check-ground-seam.mjs` (add a `{ file, y, reason }` entry).
+  - **`guard:e2e-canvas`** enforces the "no canvas pixels in e2e" rule by failing
+    if any `e2e/**` spec uses `getContext` / `toDataURL` / `readPixels` /
+    `.screenshot(` / `toMatchSnapshot(`. E2E asserts on DOM/store state only.
 - Keep `README.md` current: how to run, current feature list, controls/shortcuts.
 - **Update README + this CLAUDE.md every time** behavior or scope changes.
 
@@ -342,12 +352,19 @@ Phase 1 is sub-phased so each prompt ships one coherent slice (one prompt = one
 coherent commit), the discipline carried over from the prior project. Build in
 order; do not build ahead.
 
-**Current status: phase 1a is implemented.** You can place / select / move /
-delete towers on the flat grid, with undo/redo, autosave, Export/Import JSON,
-and CI (Vitest + Playwright) green. One scoping note: the ground-plane raycast +
-gizmo placement backbone is in, but **working-plane-at-height placement was left
-for a later phase** (it is only needed once pieces stack in empty air), so 1a
-places towers on the ground only. Next up is **1b**.
+**Current status: phases 1a–1b are implemented.** You can place / select /
+move / delete towers on the flat grid, with undo/redo, autosave, Export/Import
+JSON, and CI green. **1b added:** the material system (MaterialRef + runtime
+procedural patterns stone/brick/thatch/opaque-water + `materialRefToThreeMaterial`
+in `src/materials/`) wired through the tower mesh with a panel Fill control;
+**crenellations** as a per-piece parameter built in the tower's pure builder
+(`src/geometry/towerBuilder.ts`); and **face-attach** placement
+(`src/geometry/support.ts` → `resolveSupportAt`) so a tower seats on top of
+another tower's top, the stored base routed through the support-height rule
+(`groundHeightAt` over ground, the surface top over a piece — never a hardcoded
+0). Two CI guard scripts were added (see Verification). One scoping note still
+holds: **working-plane-at-arbitrary-height placement is deferred** — face-attach
+covers the only stacking 1b needs. Next up is **1c** (wall run + gatehouse).
 
 - **1a (foundation):** fresh Vite + React + TS repo; Zustand store + schema v1 +
   undo/redo; the 3D scene with the carried-over orthographic iso camera + orbit/zoom
