@@ -3,6 +3,11 @@
 // document is rejected with a readable reason.
 
 import { SCHEMA_VERSION, type Design, type Piece, type Vec2 } from "../store/schema";
+import { PATTERN_IDS } from "../materials/patterns";
+
+// The importer's pattern allowlist DERIVES from the runtime id list, so adding a
+// new PatternId never causes a previously-saved/exported design to be rejected.
+const PATTERN_ALLOWLIST = new Set<string>(PATTERN_IDS);
 
 export class DesignValidationError extends Error {
   /** True when the document is from a newer, unknown schema version. */
@@ -31,6 +36,40 @@ const KNOWN_KINDS = new Set([
   "moat",
 ]);
 
+function validateMaterial(value: unknown, index: number): void {
+  // Material is optional in the raw document (older saves may predate it); when
+  // present it must be a well-formed solid or pattern. Unknown pattern ids are
+  // rejected, but the allowlist DERIVES from PATTERN_IDS so additive ids pass.
+  if (value === undefined) return;
+  if (!isPlainObject(value)) {
+    throw new DesignValidationError(`pieces[${index}].material must be an object`);
+  }
+  if (value.kind === "solid") {
+    if (typeof value.color !== "string") {
+      throw new DesignValidationError(
+        `pieces[${index}].material.color must be a string`,
+      );
+    }
+    return;
+  }
+  if (value.kind === "pattern") {
+    if (typeof value.pattern !== "string" || !PATTERN_ALLOWLIST.has(value.pattern)) {
+      throw new DesignValidationError(
+        `pieces[${index}].material.pattern is unknown: ${value.pattern}`,
+      );
+    }
+    if (typeof value.colorA !== "string" || typeof value.colorB !== "string") {
+      throw new DesignValidationError(
+        `pieces[${index}].material pattern needs string colorA/colorB`,
+      );
+    }
+    return;
+  }
+  throw new DesignValidationError(
+    `pieces[${index}].material.kind is unknown: ${value.kind}`,
+  );
+}
+
 function validatePiece(value: unknown, index: number): Piece {
   if (!isPlainObject(value)) {
     throw new DesignValidationError(`pieces[${index}] is not an object`);
@@ -50,6 +89,7 @@ function validatePiece(value: unknown, index: number): Piece {
   if (typeof value.rotation !== "number") {
     throw new DesignValidationError(`pieces[${index}].rotation must be a number`);
   }
+  validateMaterial(value.material, index);
   return value as unknown as Piece;
 }
 
