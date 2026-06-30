@@ -45,11 +45,15 @@ export function GroundInteraction() {
     }
   };
 
+  // Seat the interaction plane at the ground (routed through groundHeightAt, never
+  // an inline ground-y), nudged to the grid layer to avoid z-fighting.
+  const planeY = groundHeightAt(0, 0) + GRID_LAYER;
+
   return (
     <group>
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, GRID_LAYER, 0]}
+        position={[0, planeY, 0]}
         onPointerMove={handleMove}
         onPointerOut={handleOut}
         onClick={handleClick}
