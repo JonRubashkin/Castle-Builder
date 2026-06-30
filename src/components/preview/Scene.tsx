@@ -2,6 +2,8 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { isoCameraPosition } from "../../geometry/camera";
 import { Ground } from "./Ground";
+import { GroundInteraction } from "./GroundInteraction";
+import { Pieces } from "./Pieces";
 
 const CAMERA_DISTANCE = 60;
 const ISO = isoCameraPosition(CAMERA_DISTANCE);
@@ -28,6 +30,8 @@ export function Scene() {
       <ambientLight intensity={0.25} />
 
       <Ground />
+      <GroundInteraction />
+      <Pieces />
 
       <OrbitControls
         makeDefault

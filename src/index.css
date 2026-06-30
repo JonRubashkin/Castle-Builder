@@ -50,6 +50,9 @@ button:focus-visible {
 }
 
 .app__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
   padding: 8px 16px;
   border-bottom: 1px solid var(--panel-border);
 }
@@ -57,6 +60,92 @@ button:focus-visible {
 .app__header h1 {
   font-size: 16px;
   margin: 0;
+  white-space: nowrap;
+}
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.toolbar__group {
+  display: flex;
+  gap: 6px;
+}
+
+.toolbar__btn.is-active {
+  border-color: var(--accent-strong);
+  background: #30435a;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Properties panel */
+.panel {
+  width: 260px;
+  flex: none;
+  border-left: 1px solid var(--panel-border);
+  background: var(--panel);
+  padding: 16px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel--empty {
+  justify-content: flex-start;
+}
+
+.panel__title {
+  font-size: 14px;
+  margin: 0;
+}
+
+.panel__hint {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.panel__field {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.panel__field input,
+.panel__field select {
+  font: inherit;
+  color: var(--text);
+  background: #1b1f24;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  width: 90px;
+}
+
+.panel__unit {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.panel__delete {
+  margin-top: 4px;
+  border-color: #6e3a3a;
+  background: #3a2626;
+}
+
+.panel__delete:hover {
+  border-color: #c06060;
 }
 
 .app__body {
