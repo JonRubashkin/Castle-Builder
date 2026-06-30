@@ -59,10 +59,22 @@ button:focus-visible {
   margin: 0;
 }
 
-.app__main {
+.app__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.app__viewport {
   flex: 1;
   position: relative;
   min-height: 0;
+  min-width: 0;
+}
+
+.app__viewport canvas {
+  display: block;
+  touch-action: none;
 }
 
 /* Error boundary card */
