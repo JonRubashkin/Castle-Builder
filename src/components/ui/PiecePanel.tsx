@@ -6,6 +6,7 @@ import type {
   Moat,
   PatternId,
   Piece,
+  Ramp,
   Tower,
   WallRun,
 } from "../../store/schema";
@@ -437,6 +438,72 @@ function GatePanel({ gate }: { gate: Gate }) {
   );
 }
 
+function RampPanel({ ramp }: { ramp: Ramp }) {
+  const updatePiece = useStore((s) => s.updatePiece);
+  const deletePiece = useStore((s) => s.deletePiece);
+  // The connection was computed to span two clicks; everything stays tunable here.
+  const slope = ramp.run > 0 ? ((ramp.rise / ramp.run) * 100).toFixed(0) : "—";
+
+  return (
+    <aside className="panel" aria-label="Ramp properties" data-piece-id={ramp.id}>
+      <h2 className="panel__title">Ramp</h2>
+      <p className="panel__hint">
+        Connects {ramp.rise.toFixed(2)} m of rise over {ramp.run.toFixed(2)} m of
+        run ({slope}% slope).
+      </p>
+
+      <label className="panel__field">
+        <span>Style</span>
+        <select
+          aria-label="Style"
+          value={ramp.style}
+          onChange={(e) =>
+            updatePiece(ramp.id, { style: e.target.value as Ramp["style"] })
+          }
+        >
+          <option value="ramp">Ramp</option>
+          <option value="stair">Stair</option>
+        </select>
+      </label>
+
+      <NumberField
+        label="Rise"
+        value={ramp.rise}
+        min={0}
+        step={0.1}
+        onCommit={(v) => updatePiece(ramp.id, { rise: v })}
+      />
+      <NumberField
+        label="Run"
+        value={ramp.run}
+        min={0.1}
+        step={0.1}
+        onCommit={(v) => updatePiece(ramp.id, { run: v })}
+      />
+      <NumberField
+        label="Width"
+        value={ramp.width}
+        min={0.3}
+        step={0.1}
+        onCommit={(v) => updatePiece(ramp.id, { width: v })}
+      />
+      <RotationField
+        value={ramp.rotation}
+        onCommit={(deg) => updatePiece(ramp.id, { rotation: deg })}
+      />
+
+      <MaterialControl
+        material={ramp.material}
+        onChange={(m) => updatePiece(ramp.id, { material: m })}
+      />
+
+      <button type="button" className="panel__delete" onClick={() => deletePiece(ramp.id)}>
+        Delete ramp
+      </button>
+    </aside>
+  );
+}
+
 function MoatPanel({ moat }: { moat: Moat }) {
   const updatePiece = useStore((s) => s.updatePiece);
   const deletePiece = useStore((s) => s.deletePiece);
@@ -555,6 +622,8 @@ export function PiecePanel() {
       return <GatePanel gate={piece} />;
     case "moat":
       return <MoatPanel moat={piece} />;
+    case "ramp":
+      return <RampPanel ramp={piece} />;
     default:
       return <EmptyPanel />;
   }

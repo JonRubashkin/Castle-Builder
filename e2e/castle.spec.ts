@@ -481,6 +481,109 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect(m.base).toBe(0); // ground-only, even sitting over a tower
   });
 
+  test("ramp: two-click connect from ground to a tower top stores rise ≈ tower height", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    // A tower at the origin (projects near the canvas center), height 8.
+    const towerHeight = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const id = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      return api.getPieces().find((p: any) => p.id === id).height;
+    });
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    // Ramp tool: first click a bottom on open ground (a far corner), then a top
+    // click over the tower (canvas center → over the tower footprint).
+    await page.getByRole("button", { name: "Ramp", exact: true }).click();
+    await clickCanvasAt(page, 80, 90); // bottom — on the ground, away from the tower
+    expect(await pieceCount(page)).toBe(1); // first click only sets the bottom
+    await clickCanvasCenter(page); // top — over the tower top → a real connection
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const ramp = (await pieces(page)).find((p) => p.kind === "ramp");
+    expect(ramp).toBeTruthy();
+    // The bottom is on the ground (base 0), so the rise literally spans the tower
+    // height regardless of where the bottom landed.
+    expect(ramp.base).toBe(0);
+    expect(ramp.rise).toBeCloseTo(towerHeight, 6);
+    expect(ramp.run).toBeGreaterThan(0);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("ramp: a top click on empty ground falls back to a tunable default ramp", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Ramp", exact: true }).click();
+    // Both clicks land on empty ground → the graceful fallback default ramp.
+    await clickCanvasAt(page, 200, 320); // bottom
+    expect(await pieceCount(page)).toBe(0);
+    await clickCanvasAt(page, 520, 220); // top — empty ground, not a surface
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    const ramp = (await pieces(page))[0];
+    expect(ramp.kind).toBe("ramp");
+    // Default rise/run from constants (the user tunes after). Default style "ramp".
+    expect(ramp.rise).toBe(4);
+    expect(ramp.run).toBe(6);
+    expect(ramp.style).toBe("ramp");
+    expect(ramp.base).toBe(0); // bottom on the ground
+  });
+
+  test("ramp: toggle ramp/stair, edit rise, and delete", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    // Place a ramp via the store, then select it via the accessor (a ramp's slope
+    // can't be reliably picked by a single canvas click — and e2e never reads
+    // canvas pixels).
+    const id = await page.evaluate(() => {
+      return (window as any).__CASTLE_E2E__.getState().addRamp({
+        position: { x: 0, y: 0 },
+        base: 0,
+        rotation: 0,
+        rise: 4,
+        run: 6,
+      });
+    });
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    await page.getByRole("button", { name: "Select" }).click();
+    await page.evaluate((rid) => {
+      (window as any).__CASTLE_E2E__.getState().selectPiece(rid);
+    }, id);
+    await expect(page.getByRole("heading", { name: "Ramp" })).toBeVisible();
+
+    // Toggle ramp → stair.
+    await page.getByLabel("Style").selectOption("stair");
+    await expect.poll(async () => (await pieces(page))[0].style).toBe("stair");
+
+    // Edit the rise.
+    await page.getByLabel("Rise").fill("5");
+    await expect.poll(async () => (await pieces(page))[0].rise).toBe(5);
+
+    // Delete via the panel button.
+    await page.getByRole("button", { name: "Delete ramp" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+
+    expect(errors).toEqual([]);
+  });
+
   test("face-attach: a tower placed over another seats on its top", async ({
     page,
   }) => {

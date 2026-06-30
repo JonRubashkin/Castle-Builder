@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveSupportAt } from "./support";
-import type { Gate, Gatehouse, Moat, Tower } from "../store/schema";
+import type { Gate, Gatehouse, Moat, Ramp, Tower } from "../store/schema";
 
 function tower(overrides: Partial<Tower> = {}): Tower {
   return {
@@ -133,6 +133,36 @@ describe("resolveSupportAt — the face-attach support rule", () => {
       onSurface: false,
       surfaceId: null,
     });
+  });
+
+  it("a RAMP is NOT a face-attach surface (its top is a slope, not a flat top)", () => {
+    const r: Ramp = {
+      id: "ramp",
+      kind: "ramp",
+      position: { x: 0, y: 0 },
+      base: 0,
+      rotation: 0,
+      rise: 4,
+      run: 6,
+      width: 2,
+      style: "ramp",
+      material: { kind: "solid", color: "#9a958c" },
+    };
+    // Anywhere over the ramp's deck still resolves to the ground — nothing seats
+    // on a ramp (its top is a slope).
+    expect(resolveSupportAt({ x: 0, y: 3 }, [r])).toEqual({
+      base: 0,
+      onSurface: false,
+      surfaceId: null,
+    });
+  });
+
+  it("a ramp's BOTTOM anchor still seats on a flat top under it (ramps can sit on tops)", () => {
+    const t = tower({ id: "host", radius: 3, height: 8 });
+    // The ramp's bottom anchor resolves like any piece's anchor — onto the tower top.
+    const r = resolveSupportAt({ x: 0, y: 0 }, [t]);
+    expect(r.onSurface).toBe(true);
+    expect(r.base).toBe(8);
   });
 
   it("a MOAT is ground-only: it is never a face-attach surface (water-on-a-tower)", () => {

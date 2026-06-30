@@ -136,15 +136,16 @@ export interface RampConnection {
 }
 
 /**
- * Heading (degrees about world Y) so the ramp's LOCAL +Z (its climb direction)
- * points from `from` toward `to` once rendered with rotation [0, -deg2rad(rot), 0].
- * Derivation: local +Z maps to world (−sin rot, cos rot); matching that to the
- * bottom→top direction gives rot = atan2(−dx, dz).
+ * Heading (degrees about world Y, SNAPPED to 15°) so the ramp's LOCAL +Z (its
+ * climb direction) points from `from` toward `to` once rendered with rotation
+ * [0, -deg2rad(rot), 0]. Derivation: local +Z maps to world (−sin rot, cos rot);
+ * matching that to the from→to direction gives rot = atan2(−dx, dz). Shared by the
+ * connection helper and the empty-top fallback so both aim the ramp identically.
  */
-function headingDeg(from: Vec2, to: Vec2): number {
+export function rampRotationToward(from: Vec2, to: Vec2): number {
   const dx = to.x - from.x;
   const dz = to.y - from.y;
-  return (Math.atan2(-dx, dz) * 180) / Math.PI;
+  return snapRotation((Math.atan2(-dx, dz) * 180) / Math.PI);
 }
 
 export function resolveRampConnection(
@@ -160,6 +161,6 @@ export function resolveRampConnection(
   const run = Math.max(MIN_RAMP_RUN, dist);
   // rotation snapped to 15° (consistent with other pieces) — the ramp then points
   // APPROXIMATELY at the top; the panel tunes after. Heading uses the raw clicks.
-  const rotation = snapRotation(headingDeg(bottom.point, top.point));
+  const rotation = rampRotationToward(bottom.point, top.point);
   return { position, base: bottom.base, rotation, rise, run };
 }
