@@ -123,6 +123,60 @@ test.describe("Castle Builder — phases 1a–1b", () => {
       .toBe("solid");
   });
 
+  test("face-attach on move: dragging a tower onto another seats it, off it drops", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // Place two towers on the ground at distinct spots (via the store accessor,
+    // since a precise 3D gizmo drag can't be driven without canvas pixels — which
+    // e2e must never touch). Then drive the same transient move the gizmo fires.
+    const ids = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const a = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      const b = api.getState().addTower({ position: { x: 50, y: 50 }, base: 0 });
+      return { a, b };
+    });
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const lowerTop = await page.evaluate((id) => {
+      const t = (window as any).__CASTLE_E2E__
+        .getPieces()
+        .find((p: any) => p.id === id);
+      return t.base + t.height;
+    }, ids.a);
+
+    // Drag tower B's anchor over tower A (the live transient the gizmo drives).
+    await page.evaluate((id) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setPiecePositionTransient(id, { x: 0, y: 0 });
+      api.getState().commitTransient();
+    }, ids.b);
+
+    await expect
+      .poll(async () => {
+        const t = (await pieces(page)).find((p) => p.id === ids.b);
+        return t.base;
+      })
+      .toBeCloseTo(lowerTop, 6);
+
+    // Drag it back off onto open ground → base returns to ground height.
+    await page.evaluate((id) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setPiecePositionTransient(id, { x: 50, y: 50 });
+      api.getState().commitTransient();
+    }, ids.b);
+
+    await expect
+      .poll(async () => {
+        const t = (await pieces(page)).find((p) => p.id === ids.b);
+        return t.base;
+      })
+      .toBe(0);
+  });
+
   test("face-attach: a tower placed over another seats on its top", async ({
     page,
   }) => {

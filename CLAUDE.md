@@ -362,7 +362,12 @@ in `src/materials/`) wired through the tower mesh with a panel Fill control;
 (`src/geometry/support.ts` → `resolveSupportAt`) so a tower seats on top of
 another tower's top, the stored base routed through the support-height rule
 (`groundHeightAt` over ground, the surface top over a piece — never a hardcoded
-0). Two CI guard scripts were added (see Verification). One scoping note still
+0). **Both the placement path and the gizmo-move path resolve base through the
+same `resolveSupportAt` helper** — the move path calls it inside the store's
+`setPiecePositionTransient` (excluding the dragged piece from its own support),
+so dragging an existing tower over another climbs onto its top live and dragging
+it back over open ground drops it to the ground, all as one undoable step.
+Two CI guard scripts were added (see Verification). One scoping note still
 holds: **working-plane-at-arbitrary-height placement is deferred** — face-attach
 covers the only stacking 1b needs. Next up is **1c** (wall run + gatehouse).
 

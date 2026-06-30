@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore, HISTORY_CAP } from "./store";
 import { createEmptyDesign, type Tower } from "./schema";
+import * as support from "../geometry/support";
 
 function reset() {
   useStore.setState({
@@ -159,5 +160,54 @@ describe("store: transient interaction", () => {
     useStore.getState().cancelTransient();
     expect(useStore.getState().design.pieces[0].position).toEqual({ x: 0, y: 0 });
     expect(useStore.getState().history.past.length).toBe(historyBefore);
+  });
+});
+
+describe("store: a gizmo move resolves base through the same support rule", () => {
+  beforeEach(reset);
+
+  const tower = (id: string) =>
+    useStore.getState().design.pieces.find((p) => p.id === id) as Tower;
+
+  it("the move path resolves base through resolveSupportAt", () => {
+    const spy = vi.spyOn(support, "resolveSupportAt");
+    const id = useStore.getState().addTower(at(0, 0));
+    useStore.getState().beginTransient();
+    useStore.getState().setPiecePositionTransient(id, { x: 5, y: 5 });
+    // The placement path and the move path call the same shared helper.
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("dragging a tower's anchor over another tower's top seats its base on that top", () => {
+    const lowerId = useStore.getState().addTower(at(0, 0)); // ground, height 8
+    const moverId = useStore.getState().addTower(at(50, 50)); // far away on the ground
+    const lower = tower(lowerId);
+
+    useStore.getState().beginTransient();
+    // Drag the mover so its anchor lands over the lower tower's footprint.
+    useStore.getState().setPiecePositionTransient(moverId, { x: 0, y: 0 });
+
+    // Face-attach: base snaps to the lower tower's top (base + height).
+    expect(tower(moverId).base).toBe(lower.base + lower.height);
+    expect(tower(moverId).position).toEqual({ x: 0, y: 0 });
+
+    // Drag back over open ground → base drops back to ground height (0).
+    useStore.getState().setPiecePositionTransient(moverId, { x: 50, y: 50 });
+    expect(tower(moverId).base).toBe(0);
+
+    // The whole drag commits as a single undoable step.
+    useStore.getState().commitTransient();
+    useStore.getState().undo();
+    expect(tower(moverId).position).toEqual({ x: 50, y: 50 });
+    expect(tower(moverId).base).toBe(0);
+  });
+
+  it("a dragged tower never seats on its own footprint", () => {
+    const id = useStore.getState().addTower(at(0, 0));
+    useStore.getState().beginTransient();
+    // Nudge within its own footprint — it must stay on the ground, not climb itself.
+    useStore.getState().setPiecePositionTransient(id, { x: 0.1, y: 0 });
+    expect(tower(id).base).toBe(0);
   });
 });
