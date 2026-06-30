@@ -179,6 +179,12 @@ test.describe("Castle Builder — phases 1a–1b", () => {
   });
 
   test("place a gatehouse, edit a param, rotate, and delete it", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
     await openApp(page);
 
     await page.getByRole("button", { name: "Gatehouse" }).click();
@@ -203,9 +209,17 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     // Delete via the panel button.
     await page.getByRole("button", { name: "Delete gatehouse" }).click();
     await expect.poll(() => pieceCount(page)).toBe(0);
+
+    expect(errors).toEqual([]);
   });
 
   test("draw a wall run with two clicks", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
     await openApp(page);
 
     await page.getByRole("button", { name: "Wall" }).click();
@@ -224,6 +238,8 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     for (const v of [w.position.x, w.position.y, w.end.x, w.end.y]) {
       expect(Math.abs(v * 10 - Math.round(v * 10))).toBeLessThan(1e-6);
     }
+
+    expect(errors).toEqual([]);
   });
 
   test("select a wall run and delete it", async ({ page }) => {

@@ -1,16 +1,18 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { TransformControls } from "@react-three/drei";
+import * as THREE from "three";
 import type { Group } from "three";
-import type { ThreeEvent } from "@react-three/fiber";
+import { useThree, type ThreeEvent } from "@react-three/fiber";
 import type { Vec2, WallRun } from "../../store/schema";
-import { useStore } from "../../store/store";
+import { useStore, type WallEndpoint } from "../../store/store";
 import { groundHeightAt } from "../../geometry/ground";
 import {
   wallRunCenter,
+  wallRunLength,
   wallRunRotationDeg,
 } from "../../geometry/wallRunFootprint";
 import { buildWallRun } from "../../geometry/wallRunBuilder";
-import { snapHorizontal } from "../../geometry/grid";
+import { snapHorizontal, snapHorizontalVec2 } from "../../geometry/grid";
 import { PATTERN_TILE_METERS } from "../../materials/patterns";
 import { useThreeMaterial } from "../../materials/threeMaterial";
 import { isCleanClick } from "./interaction";
@@ -19,6 +21,8 @@ import { BoxParts } from "./BoxParts";
 function deg2rad(d: number): number {
   return (d * Math.PI) / 180;
 }
+
+const HANDLE_TINT = "#f2b705";
 
 interface WallRunMeshProps {
   piece: WallRun;
@@ -36,6 +40,15 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
   const tool = useStore((s) => s.tool);
   const selected = useStore((s) => s.selectedId === piece.id);
   const selectPiece = useStore((s) => s.selectPiece);
+
+  // For projecting endpoint-handle drags onto the ground plane.
+  const camera = useThree((s) => s.camera);
+  const gl = useThree((s) => s.gl);
+  // The default OrbitControls (makeDefault) — disabled while dragging a handle
+  // so the drag doesn't also orbit the camera.
+  const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const handleDragRef = useRef<WallEndpoint | null>(null);
 
   // Idempotent: flips false→true once so the gizmo can attach after mount.
   useLayoutEffect(() => {
@@ -62,6 +75,49 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
 
   const material = useThreeMaterial(piece.material, { repeat }, { selected, hovered });
 
+  // --- endpoint-handle dragging (Select tool) ---------------------------------
+  // Project a screen point onto the wall's base plane (y = baseY); we only use
+  // the XZ result. The base plane Y routes through groundHeightAt + base.
+  const projectToBasePlane = (clientX: number, clientY: number): Vec2 | null => {
+    const rect = gl.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    raycasterRef.current.setFromCamera(ndc, camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -baseY);
+    const hit = new THREE.Vector3();
+    if (!raycasterRef.current.ray.intersectPlane(plane, hit)) return null;
+    return { x: hit.x, y: hit.z };
+  };
+
+  const onWindowMove = (ev: PointerEvent) => {
+    const which = handleDragRef.current;
+    if (!which) return;
+    const p = projectToBasePlane(ev.clientX, ev.clientY);
+    if (!p) return;
+    // Reshape live, grid-snapped; base re-resolves at the start anchor in store.
+    useStore.getState().setWallEndpointTransient(piece.id, which, snapHorizontalVec2(p));
+  };
+
+  const onWindowUp = () => {
+    if (!handleDragRef.current) return;
+    handleDragRef.current = null;
+    useStore.getState().commitTransient(); // one undoable step
+    window.removeEventListener("pointermove", onWindowMove);
+    window.removeEventListener("pointerup", onWindowUp);
+    if (controls) controls.enabled = true;
+  };
+
+  const startHandleDrag = (which: WallEndpoint, e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    handleDragRef.current = which;
+    if (controls) controls.enabled = false; // don't orbit while dragging a handle
+    useStore.getState().beginTransient();
+    window.addEventListener("pointermove", onWindowMove);
+    window.addEventListener("pointerup", onWindowUp);
+  };
+
   const handleOver = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== "select") return;
     e.stopPropagation();
@@ -82,6 +138,12 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
   };
 
   const showGizmo = selected && tool === "select" && ready && groupRef.current;
+  // Endpoint handles render as children of the (rotated) group, so they don't
+  // need the mounted ref the gizmo does.
+  const showHandles = selected && tool === "select";
+  const halfX = wallRunLength(piece) / 2;
+  const handleY = piece.height; // sit on the top edge
+  const handleRadius = Math.max(0.3, piece.thickness * 0.75);
 
   return (
     <>
@@ -93,6 +155,29 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
         <group onPointerOver={handleOver} onPointerOut={handleOut} onClick={handleClick}>
           <BoxParts parts={parts} material={material} />
         </group>
+
+        {/* Endpoint handles (the primary editing affordance): a selected wall
+            shows a draggable handle at each end. Local +X runs start→end, so
+            −halfX is the START handle and +halfX is the END handle. They sit at
+            the top edge; dragging projects onto the base plane (XZ only). */}
+        {showHandles && (
+          <>
+            <mesh
+              position={[-halfX, handleY, 0]}
+              onPointerDown={(e) => startHandleDrag("start", e)}
+            >
+              <sphereGeometry args={[handleRadius, 16, 16]} />
+              <meshStandardMaterial color={HANDLE_TINT} roughness={0.5} />
+            </mesh>
+            <mesh
+              position={[halfX, handleY, 0]}
+              onPointerDown={(e) => startHandleDrag("end", e)}
+            >
+              <sphereGeometry args={[handleRadius, 16, 16]} />
+              <meshStandardMaterial color={HANDLE_TINT} roughness={0.5} />
+            </mesh>
+          </>
+        )}
       </group>
 
       {showGizmo && (
