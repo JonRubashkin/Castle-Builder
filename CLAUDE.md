@@ -291,6 +291,24 @@ builder is unit-tested.
   Per-design `schemaVersion` is validated on open; a future unknown version is
   refused rather than corrupting data. Surface a calm browser-storage disclosure in
   the UI.
+- **New Castle (the reset).** A top-bar **New Castle** button (`NewCastleButton`)
+  clears the design and starts fresh — but **only after explicit confirmation**
+  (a dismissable dialog: Cancel / Esc / backdrop change nothing; only "Start new"
+  resets). The reset is **destructive and irreversible** once autosave overwrites,
+  so confirmation is **mandatory — never reset without it**. It goes through ONE
+  shared atomic store action, **`newDesign`**, which swaps in a fresh empty
+  `Design` (schemaVersion 1, empty pieces, default name) AND resets every
+  doc-dependent transient (selection, undo/redo history, the pending-interaction
+  snapshot) so **no reference to a now-gone piece survives** — the prior project's
+  hard-won lesson (a reset that swaps the doc but leaves dangling transient
+  references white-screens). It also **bumps a monotonic `bootNonce`**; the editor
+  tree is keyed on it (`<Editor key={bootNonce} />`) so the reset **fully remounts
+  a clean tree** rather than mutating the live one in place, which additionally
+  clears component-local in-progress placement/drag state. The doc-lifecycle hooks
+  (`useAutosave`, shortcuts, the e2e accessor) live in `App` **outside** the keyed
+  subtree on purpose — remounting `useAutosave` would re-run its load-from-storage
+  and could race the old design back in. The fresh empty design persists via the
+  existing autosave path (a later reload resumes the empty design).
 
 ## Safety nets & known-bug lessons (carried over)
 
@@ -356,7 +374,11 @@ order; do not build ahead.
 vocabulary exists. You can place / select / move / rotate / edit / delete
 towers, gatehouses, wall runs, gates, moats, and ramps/stairs on the flat grid,
 with undo/redo, autosave, Export/Import JSON (round-tripping all six kinds), and
-CI green. **1b added:** the
+CI green. **Post-1e refinements (still phase 1, not new scope):** the ramp aims
+**exactly** at its connection (no 15° snap on the ramp heading; see 1e); wall
+endpoints **snap to nearby tower/gatehouse anchors** (convenience only, no
+attachment; see 1c); and a top-bar **New Castle** reset clears to a fresh empty
+design after confirmation (see "State, undo, persistence"). **1b added:** the
 material system (MaterialRef + runtime procedural patterns
 stone/brick/thatch/opaque-water + `materialRefToThreeMaterial` in
 `src/materials/`) wired through the piece meshes with a panel Fill control;

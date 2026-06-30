@@ -1,4 +1,5 @@
 import { useStore, type Tool } from "../../store/store";
+import { NewCastleButton } from "./NewCastleButton";
 
 const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: "select", label: "Select", hint: "Pick, move, and edit pieces" },
@@ -47,6 +48,9 @@ export function Toolbar() {
         >
           Redo
         </button>
+      </div>
+      <div className="toolbar__group">
+        <NewCastleButton />
       </div>
     </div>
   );

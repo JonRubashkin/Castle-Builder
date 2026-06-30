@@ -704,4 +704,58 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     // And the first tower stayed on the ground.
     expect(lower.base).toBe(0);
   });
+
+  test("New Castle: Cancel keeps the design; confirm clears it and survives reload", async ({
+    page,
+  }) => {
+    const undoPastLength = () =>
+      page.evaluate(() => (window as any).__CASTLE_E2E__.getState().history.past.length);
+
+    await openApp(page);
+
+    // Build up a small design (towers → non-empty pieces + undo history).
+    await page.getByRole("button", { name: "Tower" }).click();
+    await clickCanvasAt(page, 300, 300);
+    await clickCanvasAt(page, 500, 250);
+    await expect.poll(() => pieceCount(page)).toBe(2);
+    // Select a piece so we can confirm the reset clears the selection too.
+    await page.getByRole("button", { name: "Select" }).click();
+    await clickCanvasAt(page, 300, 300);
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+    expect(await undoPastLength()).toBeGreaterThan(0);
+
+    // Open the dialog and CANCEL → nothing changes.
+    await page.getByRole("button", { name: "New Castle" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    expect(await pieceCount(page)).toBe(2); // design intact
+
+    // Open again and CONFIRM → fresh empty design, transients + history cleared.
+    await page.getByRole("button", { name: "New Castle" }).click();
+    await page.getByRole("button", { name: "Start new" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+    expect(await selectedId(page)).toBeNull();
+    expect(await undoPastLength()).toBe(0);
+
+    // The fresh design persists: a reload resumes the empty design (not the old).
+    await page.waitForTimeout(500); // let the debounced autosave flush
+    await page.reload();
+    await page.waitForFunction(() => Boolean((window as any).__CASTLE_E2E__));
+    await expect.poll(() => pieceCount(page)).toBe(0);
+  });
+
+  test("New Castle: Esc dismisses the dialog with no change", async ({ page }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Tower" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    await page.getByRole("button", { name: "New Castle" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeHidden();
+    expect(await pieceCount(page)).toBe(1); // unchanged
+  });
 });

@@ -71,6 +71,12 @@ export interface StoreState {
   moatShape: MoatShape;
   selectedId: string | null;
   history: History;
+  // A monotonic boot counter bumped by newDesign(). The editor tree is keyed on
+  // it (<Editor key={bootNonce} />) so a "New Castle" reset fully REMOUNTS a clean
+  // tree rather than mutating the live one in place — the prior project's hard-won
+  // cure for a reset that swaps the doc but leaves dangling component-local
+  // transient state (in-progress placement drafts, drag refs) behind.
+  bootNonce: number;
   // Snapshot captured at the start of a transient interaction (drag/gizmo). While
   // non-null, piece mutations are previewed live without touching history; the
   // snapshot is what gets pushed to `past` when the interaction commits.
@@ -119,7 +125,11 @@ export interface StoreState {
 
   // --- persistence / lifecycle ---
   loadDesign: (design: Design) => void;
-  resetDesign: () => void;
+  // Start a fresh, empty design. ONE shared atomic reset: swaps in a new empty
+  // Design AND resets every doc-dependent transient (selection, undo/redo
+  // history, the pending-interaction snapshot) so no reference to a now-gone
+  // piece can survive, then bumps bootNonce so the editor tree remounts clean.
+  newDesign: () => void;
 }
 
 let idCounter = 0;
@@ -162,6 +172,7 @@ export const useStore = create<StoreState>((set, get) => {
     selectedId: null,
     history: { past: [], future: [] },
     pendingSnapshot: null,
+    bootNonce: 0,
 
     setTool: (tool) => set({ tool }),
     setMoatShape: (moatShape) => set({ moatShape }),
@@ -468,12 +479,16 @@ export const useStore = create<StoreState>((set, get) => {
         pendingSnapshot: null,
       }),
 
-    resetDesign: () =>
-      set({
+    newDesign: () =>
+      set((state) => ({
         design: createEmptyDesign(),
+        // Reset every doc-dependent transient so nothing references a gone piece.
         selectedId: null,
         history: { past: [], future: [] },
         pendingSnapshot: null,
-      }),
+        // Bump the boot counter → the editor tree remounts clean (clearing any
+        // component-local in-progress placement/drag state too).
+        bootNonce: state.bootNonce + 1,
+      })),
   };
 });

@@ -59,6 +59,7 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim). Each piece carries a **material** (solid color or a stone / brick / thatch / water pattern). |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
+| **New Castle** | A top-bar button that clears the current design and starts fresh. It asks for **confirmation first** (Cancel / `Esc` / clicking the backdrop all dismiss with no change; only **Start new** resets). The reset is destructive and **irreversible once autosave overwrites** — **Export JSON first** if you want to keep the current castle. |
 | Export / Import | Buttons in the bottom bar — save or load a design as JSON. |
 
 ## Persistence
@@ -67,6 +68,12 @@ Your work **autosaves into this browser only** (a single `localStorage` slot).
 Clearing browser data erases it, so use **Export JSON** to keep a backup and
 **Import JSON** to restore it. Designs carry a `schemaVersion`; a file from a
 newer, unknown version is refused on open rather than risking corruption.
+**New Castle** clears everything to a fresh empty design (after confirmation) and
+autosaves the empty design — so a later reload resumes empty, not the old castle.
+The reset runs through one atomic store action (`newDesign`) that also clears the
+selection, undo/redo history, and any in-progress placement, and remounts the
+editor tree clean (a `bootNonce` key) so no stale reference to a deleted piece can
+linger.
 
 ## Coordinates & units
 
@@ -91,7 +98,8 @@ src/
   store/               Zustand store, schema v1, undo/redo, ?e2e=1 test accessor
   persistence/         autosave + JSON export/import + schema validation
   components/preview/   the R3F scene, ground/grid, pieces, gizmo, placement
-  components/ui/        toolbar, properties panel, file/export bar
+  components/ui/        toolbar, properties panel, file/export bar,
+                       New Castle button + confirmation dialog
   hooks/                keyboard shortcuts, autosave wiring
 scripts/               CI guard scripts (ground-seam, e2e-no-canvas)
 e2e/                   Playwright tests (assert on DOM/store state, never canvas pixels)
@@ -121,8 +129,9 @@ Build command `npm run build`, output `dist/`.
   nearest-wins, grid fallback, ignores non-anchor pieces),
   the wall endpoint/whole-wall move
   actions, the iso camera, store actions + undo/redo (one snapshot per committed
-  op, with the 100-entry cap and eviction), the procedural-material logic (opaque
-  output, pattern ids), and schema validation.
+  op, with the 100-entry cap and eviction), the **`newDesign` reset** (fresh empty
+  doc + selection/history/pending-snapshot cleared + `bootNonce` bumped), the
+  procedural-material logic (opaque output, pattern ids), and schema validation.
 - E2E tests cover clean boot, placing a tower, select + delete, undo/redo,
   autosave surviving a reload, toggling crenellations + changing material,
   face-attach, placing a gatehouse (edit/rotate/delete), drawing a wall with two
@@ -132,8 +141,11 @@ Build command `npm run build`, output `dist/`.
   delete), the moat staying ground-only on a gizmo move, the **ramp** two-click
   connect (ground → a tower top, asserting the stored rise ≈ the tower height),
   the ramp's **empty-top fallback** default ramp, toggling ramp/stair + editing +
-  deleting a ramp, and a **mixed castle of all six kinds persisting across a
-  reload**. They read app state
+  deleting a ramp, a **mixed castle of all six kinds persisting across a
+  reload**, **wall-endpoint anchor snapping** (an endpoint over a tower latches to
+  its anchor; far endpoints grid-snap), and **New Castle** (Cancel/`Esc` keep the
+  design; confirm clears it + selection + undo history and survives a reload as
+  empty). They read app state
   through a test-only accessor exposed at `window.__CASTLE_E2E__` when the page is
   opened with `?e2e=1`, and never assert on the WebGL canvas pixels.
 - CI (GitHub Actions) runs two guard scripts, the build, Vitest, and Playwright
