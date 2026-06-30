@@ -12,11 +12,13 @@ import {
   wallRunRotationDeg,
 } from "../../geometry/wallRunFootprint";
 import { buildWallRun } from "../../geometry/wallRunBuilder";
-import { snapHorizontal, snapHorizontalVec2 } from "../../geometry/grid";
+import { snapHorizontal } from "../../geometry/grid";
+import { snapEndpoint } from "../../geometry/snapEndpoint";
 import { PATTERN_TILE_METERS } from "../../materials/patterns";
 import { useThreeMaterial } from "../../materials/threeMaterial";
 import { isCleanClick } from "./interaction";
 import { BoxParts } from "./BoxParts";
+import { SnapRing } from "./SnapRing";
 
 function deg2rad(d: number): number {
   return (d * Math.PI) / 180;
@@ -36,6 +38,9 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
   const dragStartRef = useRef<{ start: Vec2; end: Vec2 } | null>(null);
   const [hovered, setHovered] = useState(false);
   const [ready, setReady] = useState(false);
+  // The anchor a dragged endpoint is currently snapping to (drives the snap ring),
+  // or null when the endpoint is on the free grid.
+  const [dragSnapAnchor, setDragSnapAnchor] = useState<Vec2 | null>(null);
 
   const tool = useStore((s) => s.tool);
   const selected = useStore((s) => s.selectedId === piece.id);
@@ -96,13 +101,18 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
     if (!which) return;
     const p = projectToBasePlane(ev.clientX, ev.clientY);
     if (!p) return;
-    // Reshape live, grid-snapped; base re-resolves at the start anchor in store.
-    useStore.getState().setWallEndpointTransient(piece.id, which, snapHorizontalVec2(p));
+    // Reshape live: the endpoint snaps to a nearby piece anchor (else the grid),
+    // through the SAME helper the placement path uses. Base re-resolves at the
+    // start anchor in the store. The snap ring shows the live anchor.
+    const snap = snapEndpoint(p, useStore.getState().design.pieces);
+    setDragSnapAnchor(snap.snapped ? snap.point : null);
+    useStore.getState().setWallEndpointTransient(piece.id, which, snap.point);
   };
 
   const onWindowUp = () => {
     if (!handleDragRef.current) return;
     handleDragRef.current = null;
+    setDragSnapAnchor(null);
     useStore.getState().commitTransient(); // one undoable step
     window.removeEventListener("pointermove", onWindowMove);
     window.removeEventListener("pointerup", onWindowUp);
@@ -179,6 +189,11 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
           </>
         )}
       </group>
+
+      {/* Snap-active affordance for endpoint editing: a ring at the anchor the
+          dragged endpoint is snapping to (convenience only — no attachment). It
+          lives in world space (a sibling of the rotated group), at the anchor. */}
+      {dragSnapAnchor && <SnapRing at={dragSnapAnchor} />}
 
       {showGizmo && (
         <TransformControls

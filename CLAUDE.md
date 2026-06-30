@@ -393,6 +393,19 @@ placement path and the gizmo-move path resolving base through the *same* helper.
 - **Wall↔tower junctions overlap; there is no attachment relationship** (a wall
   whose end lands against a tower simply overlaps it — deliberate, per the
   geometry rules).
+- **Endpoint snapping** (`src/geometry/snapEndpoint.ts`: `snapEndpoint` +
+  `WALL_SNAP_TOLERANCE` ≈ 0.5 m): a wall endpoint **snaps to the nearest piece
+  anchor** (tower / gatehouse **center**) within tolerance — nearest wins — else
+  it falls back to the 0.1 m grid. It is **one shared pure helper** called by
+  BOTH the placement path (each wall click, in `GroundInteraction`) and the
+  endpoint-handle editing path (the live drag, in `WallRunMesh`) — never two
+  copies. A subtle **snap ring** (`SnapRing`, on its own `SNAP_RING_LAYER`)
+  shows at the anchor while snapping. This is **CONVENIENCE ONLY — it introduces
+  NO attachment relationship**: the wall stays two plain stored points, nothing
+  rides along if the anchor later moves, and the wall↔tower **overlap** is
+  unchanged (the tower still hides the seam; snapping just lands the endpoint on
+  the tower's center cleanly). The panel's endpoint number fields stay the
+  precise/keyboard path (plain grid, no anchor snap).
 
 **1d added the openings & water — the gate and the moat:**
 - The **gate** is a freestanding **timber portcullis grid**

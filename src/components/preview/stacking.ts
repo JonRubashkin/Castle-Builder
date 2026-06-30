@@ -25,3 +25,12 @@ export const GRID_LAYER = GROUND_LAYER + STACKING_EPSILON;
  * at groundHeightAt + base + WATER_LAYER), so raised terrain stays additive.
  */
 export const WATER_LAYER = GRID_LAYER + STACKING_EPSILON;
+
+/**
+ * The wall-endpoint snap-ring affordance — a transient UI overlay shown flat on
+ * the ground while a wall endpoint is snapping to a piece anchor. Its own layer
+ * above the water/grid so it reads cleanly at a tower base; render-only, and like
+ * every other layer it routes its Y through groundHeightAt so terrain stays
+ * additive (the constant is just the tiny anti-z-fight nudge).
+ */
+export const SNAP_RING_LAYER = WATER_LAYER + STACKING_EPSILON;
