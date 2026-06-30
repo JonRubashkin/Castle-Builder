@@ -1,6 +1,7 @@
 import { useStore } from "../../store/store";
 import { TowerMesh } from "./TowerMesh";
 import { GatehouseMesh } from "./GatehouseMesh";
+import { WallRunMesh } from "./WallRunMesh";
 
 /** Renders every piece in the design. */
 export function Pieces() {
@@ -13,6 +14,8 @@ export function Pieces() {
             return <TowerMesh key={piece.id} piece={piece} />;
           case "gatehouse":
             return <GatehouseMesh key={piece.id} piece={piece} />;
+          case "wallRun":
+            return <WallRunMesh key={piece.id} piece={piece} />;
           default:
             return null;
         }

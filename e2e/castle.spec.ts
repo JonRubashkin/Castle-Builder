@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import {
+  clickCanvasAt,
   clickCanvasCenter,
   openApp,
   pieceCount,
@@ -202,6 +203,73 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     // Delete via the panel button.
     await page.getByRole("button", { name: "Delete gatehouse" }).click();
     await expect.poll(() => pieceCount(page)).toBe(0);
+  });
+
+  test("draw a wall run with two clicks", async ({ page }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Wall" }).click();
+    // First click sets the start; no piece yet.
+    await clickCanvasAt(page, 250, 320);
+    expect(await pieceCount(page)).toBe(0);
+
+    // Second click (a clearly different point) sets the end → one wall run.
+    await clickCanvasAt(page, 520, 220);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    const w = (await pieces(page))[0];
+    expect(w.kind).toBe("wallRun");
+    // Endpoints are distinct (non-zero length) and grid-snapped (0.1 m).
+    expect(w.position).not.toEqual(w.end);
+    for (const v of [w.position.x, w.position.y, w.end.x, w.end.y]) {
+      expect(Math.abs(v * 10 - Math.round(v * 10))).toBeLessThan(1e-6);
+    }
+  });
+
+  test("select a wall run and delete it", async ({ page }) => {
+    await openApp(page);
+
+    // Place a wall straight through the origin so a center click hits it.
+    await page.evaluate(() => {
+      (window as any).__CASTLE_E2E__
+        .getState()
+        .addWallRun({ position: { x: -6, y: 0 }, end: { x: 6, y: 0 }, base: 0 });
+    });
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    await page.getByRole("button", { name: "Select" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+    await expect(page.getByRole("heading", { name: "Wall" })).toBeVisible();
+
+    await page.keyboard.press("Delete");
+    await expect.poll(() => pieceCount(page)).toBe(0);
+  });
+
+  test("drag a wall endpoint reshapes the wall (one endpoint moves)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    const id = await page.evaluate(() => {
+      return (window as any).__CASTLE_E2E__
+        .getState()
+        .addWallRun({ position: { x: 0, y: 0 }, end: { x: 10, y: 0 }, base: 0 });
+    });
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    // Drive the same transient the endpoint handle fires (a real 3D handle drag
+    // can't be driven without canvas pixels — which e2e must never touch).
+    await page.evaluate((wid) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setWallEndpointTransient(wid, "end", { x: 4, y: 6 });
+      api.getState().commitTransient();
+    }, id);
+
+    const w = (await pieces(page)).find((p) => p.id === id);
+    expect(w.position).toEqual({ x: 0, y: 0 }); // start unchanged
+    expect(w.end).toEqual({ x: 4, y: 6 }); // end moved
   });
 
   test("face-attach: a tower placed over another seats on its top", async ({

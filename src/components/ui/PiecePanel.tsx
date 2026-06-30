@@ -5,6 +5,7 @@ import type {
   PatternId,
   Piece,
   Tower,
+  WallRun,
 } from "../../store/schema";
 import { PATTERN_IDS } from "../../materials/patterns";
 import { snapRotation } from "../../geometry/grid";
@@ -30,7 +31,7 @@ function NumberField({
       <input
         type="number"
         aria-label={label}
-        min={min}
+        min={Number.isFinite(min) ? min : undefined}
         step={step}
         value={value}
         onChange={(e) => {
@@ -314,6 +315,83 @@ function GatehousePanel({ gatehouse }: { gatehouse: Gatehouse }) {
   );
 }
 
+function WallRunPanel({ wall }: { wall: WallRun }) {
+  const updatePiece = useStore((s) => s.updatePiece);
+  const setWallEndpoint = useStore((s) => s.setWallEndpoint);
+  const deletePiece = useStore((s) => s.deletePiece);
+  const length = Math.hypot(wall.end.x - wall.position.x, wall.end.y - wall.position.y);
+
+  return (
+    <aside className="panel" aria-label="Wall properties" data-piece-id={wall.id}>
+      <h2 className="panel__title">Wall</h2>
+      <p className="panel__hint">Length {length.toFixed(2)} m</p>
+
+      <NumberField
+        label="Height"
+        value={wall.height}
+        min={0.5}
+        step={0.5}
+        onCommit={(v) => updatePiece(wall.id, { height: v })}
+      />
+      <NumberField
+        label="Thickness"
+        value={wall.thickness}
+        min={0.1}
+        step={0.1}
+        onCommit={(v) => updatePiece(wall.id, { thickness: v })}
+      />
+
+      {/* Endpoint number fields — the dragging handles are the primary affordance
+          (see WallRunMesh); these are the precise/keyboard path. Each routes
+          through setWallEndpoint so the base re-resolves at the start anchor. */}
+      <NumberField
+        label="Start X"
+        value={wall.position.x}
+        min={-Infinity}
+        step={0.1}
+        onCommit={(v) => setWallEndpoint(wall.id, "start", { x: v, y: wall.position.y })}
+      />
+      <NumberField
+        label="Start Z"
+        value={wall.position.y}
+        min={-Infinity}
+        step={0.1}
+        onCommit={(v) => setWallEndpoint(wall.id, "start", { x: wall.position.x, y: v })}
+      />
+      <NumberField
+        label="End X"
+        value={wall.end.x}
+        min={-Infinity}
+        step={0.1}
+        onCommit={(v) => setWallEndpoint(wall.id, "end", { x: v, y: wall.end.y })}
+      />
+      <NumberField
+        label="End Z"
+        value={wall.end.y}
+        min={-Infinity}
+        step={0.1}
+        onCommit={(v) => setWallEndpoint(wall.id, "end", { x: wall.end.x, y: v })}
+      />
+
+      <CrenellationFields
+        crenellated={wall.crenellated}
+        merlonSize={wall.merlonSize}
+        onToggle={(v) => updatePiece(wall.id, { crenellated: v })}
+        onMerlonSize={(v) => updatePiece(wall.id, { merlonSize: v })}
+      />
+
+      <MaterialControl
+        material={wall.material}
+        onChange={(m) => updatePiece(wall.id, { material: m })}
+      />
+
+      <button type="button" className="panel__delete" onClick={() => deletePiece(wall.id)}>
+        Delete wall
+      </button>
+    </aside>
+  );
+}
+
 function EmptyPanel() {
   return (
     <aside className="panel panel--empty" aria-label="Selection">
@@ -336,6 +414,8 @@ export function PiecePanel() {
       return <TowerPanel tower={piece} />;
     case "gatehouse":
       return <GatehousePanel gatehouse={piece} />;
+    case "wallRun":
+      return <WallRunPanel wall={piece} />;
     default:
       return <EmptyPanel />;
   }

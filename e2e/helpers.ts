@@ -25,3 +25,8 @@ export async function pieces(page: Page): Promise<any[]> {
 export async function clickCanvasCenter(page: Page): Promise<void> {
   await page.locator("canvas").first().click();
 }
+
+/** Click the canvas at a position (px) relative to its top-left corner. */
+export async function clickCanvasAt(page: Page, x: number, y: number): Promise<void> {
+  await page.locator("canvas").first().click({ position: { x, y } });
+}
