@@ -10,6 +10,7 @@ import {
   type Tower,
   type Vec2,
 } from "./schema";
+import { resolveSupportAt } from "../geometry/support";
 
 export const HISTORY_CAP = 100;
 
@@ -151,7 +152,17 @@ export const useStore = create<StoreState>((set, get) => {
       set((state) => {
         const design = clone(state.design);
         const piece = design.pieces.find((p) => p.id === id);
-        if (piece) piece.position = { ...position };
+        if (piece) {
+          piece.position = { ...position };
+          // Resolve the dragged piece's base through the SAME support rule the
+          // placement path uses (resolveSupportAt): groundHeightAt over open
+          // ground, an existing piece's top via face-attach. The piece being
+          // moved is excluded so it can't seat on its own footprint. This is
+          // the single source of truth — no parallel ground-only logic and no
+          // hardcoded ground-y in the move path.
+          const others = design.pieces.filter((p) => p.id !== id);
+          piece.base = resolveSupportAt(position, others).base;
+        }
         return { design };
       });
     },

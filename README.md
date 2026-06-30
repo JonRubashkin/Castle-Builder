@@ -7,7 +7,8 @@ runs client-side — no backend.
 > **Phases 1a–1b** are implemented: place / select / move / delete the **tower**
 > on a flat ground grid, with undo/redo and autosave, **procedural materials**
 > (solid + stone / brick / thatch / opaque-water patterns), **crenellations**,
-> and **face-attach** placement (seat a tower on top of another). Walls,
+> and **face-attach** for both placement and gizmo moves (seat a tower on top
+> of another, whether placing a new one or dragging an existing one). Walls,
 > gatehouses, gates, moats, and ramps/stairs come in later phases (see
 > `CLAUDE.md` → "Phase plan"). `CLAUDE.md` is the source of truth for
 > conventions, the data model, and scope.
@@ -41,7 +42,7 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Tower tool** | Click the ground to place a tower at the grid-snapped cursor; the tool stays active. The ghost preview tints **blue on the ground** and **green when face-attaching** to a piece top. `Esc` cancels the in-progress placement. |
 | **Face-attach** | With the Tower tool, click over an existing tower's footprint: the new tower seats on that tower's **top** (its stored base = the lower tower's top), instead of on the ground. |
 | **Select tool** | Click a tower to select it; click empty ground to deselect. |
-| Move a selected tower | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). |
+| Move a selected tower | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**: drag the tower's anchor over another tower and it climbs onto that tower's top live; drag it back over open ground and it drops to ground height. |
 | Edit a tower | Use the properties panel: profile, radius/half-extent, height, **crenellations** (toggle + merlon/tooth size), and **material** (solid color or a stone / brick / thatch / water pattern with two colors). |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
