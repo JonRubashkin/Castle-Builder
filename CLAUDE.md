@@ -342,6 +342,13 @@ Phase 1 is sub-phased so each prompt ships one coherent slice (one prompt = one
 coherent commit), the discipline carried over from the prior project. Build in
 order; do not build ahead.
 
+**Current status: phase 1a is implemented.** You can place / select / move /
+delete towers on the flat grid, with undo/redo, autosave, Export/Import JSON,
+and CI (Vitest + Playwright) green. One scoping note: the ground-plane raycast +
+gizmo placement backbone is in, but **working-plane-at-height placement was left
+for a later phase** (it is only needed once pieces stack in empty air), so 1a
+places towers on the ground only. Next up is **1b**.
+
 - **1a (foundation):** fresh Vite + React + TS repo; Zustand store + schema v1 +
   undo/redo; the 3D scene with the carried-over orthographic iso camera + orbit/zoom
   + below-ground lock; the ground-plane grid; `groundHeightAt` (returns 0); the
