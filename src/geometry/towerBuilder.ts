@@ -3,9 +3,21 @@
 // +Z). The renderer maps each part to a mesh whose material flows through the
 // shared materialRefToThreeMaterial helper. Crenellations are a builder concern:
 // when `crenellated`, merlon teeth of size `merlonSize` are added around the top
-// edge (both round and square profiles). Pure + unit-tested; no hooks, no THREE.
+// edge (both round and square profiles) via the SHARED crenellation helper —
+// the same teeth code the gatehouse and wall run use. Pure + unit-tested; no
+// hooks, no THREE.
 
 import type { Tower, Vec3 } from "../store/schema";
+import {
+  merlonCount,
+  rectCrenellations,
+  roundCrenellations,
+  type MerlonBox,
+} from "./crenellations";
+
+// Re-exported so existing importers (and tests) can keep reading merlonCount
+// from the tower builder even though it now lives in the shared helper.
+export { merlonCount };
 
 interface PartBase {
   /** "shaft" = the main mass; "merlon" = a crenellation tooth. */
@@ -31,66 +43,15 @@ export type TowerPart = BoxPart | CylinderPart;
 
 const RADIAL_SEGMENTS = 48;
 
-/**
- * How many merlon teeth fit around the top edge for the given perimeter. Merlons
- * and crenels (gaps) alternate at roughly equal width, so one merlon "slot" is
- * about two tooth-widths of perimeter.
- */
-export function merlonCount(perimeter: number, merlonSize: number, min: number): number {
-  if (merlonSize <= 0) return min;
-  return Math.max(min, Math.floor(perimeter / (2 * merlonSize)));
-}
-
-function roundMerlons(tower: Tower): BoxPart[] {
-  const { radius, height, merlonSize } = tower;
-  const perimeter = 2 * Math.PI * radius;
-  const n = merlonCount(perimeter, merlonSize, 4);
-  const y = height + merlonSize / 2; // sits on the top edge
-  const teeth: BoxPart[] = [];
-  for (let i = 0; i < n; i++) {
-    const theta = (i / n) * Math.PI * 2;
-    teeth.push({
-      role: "merlon",
-      shape: "box",
-      position: { x: Math.cos(theta) * radius, y, z: Math.sin(theta) * radius },
-      size: { x: merlonSize, y: merlonSize, z: merlonSize },
-      rotationY: theta, // face outward
-    });
-  }
-  return teeth;
-}
-
-function squareMerlons(tower: Tower): BoxPart[] {
-  const { radius: half, height, merlonSize } = tower;
-  const side = half * 2;
-  const perEdge = merlonCount(side, merlonSize, 1);
-  const y = height + merlonSize / 2;
-  const teeth: BoxPart[] = [];
-  // Distribute `perEdge` teeth evenly along each of the four top edges, inset so
-  // they sit on the rim and read as separate teeth.
-  for (let i = 0; i < perEdge; i++) {
-    const t = (i + 0.5) / perEdge; // 0..1 along the edge
-    const d = -half + t * side; // position along the edge
-    // +X and -X edges (vary in z); +Z and -Z edges (vary in x).
-    teeth.push(tooth(half, d, y, merlonSize));
-    teeth.push(tooth(-half, d, y, merlonSize));
-    teeth.push(toothZ(d, half, y, merlonSize));
-    teeth.push(toothZ(d, -half, y, merlonSize));
-  }
-  return teeth;
-}
-
-function tooth(x: number, z: number, y: number, s: number): BoxPart {
+/** Wrap a shared MerlonBox into a tower BoxPart (tagged as a merlon). */
+function toMerlonPart(m: MerlonBox): BoxPart {
   return {
     role: "merlon",
     shape: "box",
-    position: { x, y, z },
-    size: { x: s, y: s, z: s },
-    rotationY: 0,
+    position: m.position,
+    size: m.size,
+    rotationY: m.rotationY,
   };
-}
-function toothZ(x: number, z: number, y: number, s: number): BoxPart {
-  return tooth(x, z, y, s);
 }
 
 export function buildTower(tower: Tower): TowerPart[] {
@@ -116,9 +77,12 @@ export function buildTower(tower: Tower): TowerPart[] {
   }
 
   if (tower.crenellated) {
+    const topY = tower.height + tower.merlonSize / 2; // teeth sit on the top edge
     const merlons =
-      tower.profile === "round" ? roundMerlons(tower) : squareMerlons(tower);
-    parts.push(...merlons);
+      tower.profile === "round"
+        ? roundCrenellations(tower.radius, topY, tower.merlonSize, 4)
+        : rectCrenellations(tower.radius, tower.radius, topY, tower.merlonSize, 1);
+    parts.push(...merlons.map(toMerlonPart));
   }
 
   return parts;
