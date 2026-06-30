@@ -6,11 +6,11 @@ import type { Tower } from "../../store/schema";
 import { useStore } from "../../store/store";
 import { groundHeightAt } from "../../geometry/ground";
 import { towerFootprint } from "../../geometry/towerFootprint";
+import { buildTower } from "../../geometry/towerBuilder";
 import { snapHorizontal } from "../../geometry/grid";
-import { materialColor } from "./material";
+import { PATTERN_TILE_METERS } from "../../materials/patterns";
+import { useThreeMaterial } from "../../materials/threeMaterial";
 import { isCleanClick } from "./interaction";
-
-const SELECT_TINT = "#7bb8ee";
 
 function deg2rad(d: number): number {
   return (d * Math.PI) / 180;
@@ -42,8 +42,26 @@ export function TowerMesh({ piece }: TowerMeshProps) {
   const supportY = groundHeightAt(piece.position.x, piece.position.y);
   const baseY = supportY + piece.base;
 
-  const color = materialColor(piece.material);
-  const emissiveIntensity = selected ? 0.35 : hovered ? 0.16 : 0;
+  // Tile a pattern at ~PATTERN_TILE_METERS across the tower's surface so stones
+  // read at a believable size; solids ignore repeat.
+  const around =
+    piece.profile === "round" ? 2 * Math.PI * fp.radius : fp.radius * 2;
+  const repeat: [number, number] = [
+    Math.max(1, Math.round(around / PATTERN_TILE_METERS)),
+    Math.max(1, Math.round(piece.height / PATTERN_TILE_METERS)),
+  ];
+
+  // All rendering flows through the shared MaterialRef→THREE factory, so solids
+  // and procedural patterns work for free; selection/hover is a styling pass.
+  const material = useThreeMaterial(
+    piece.material,
+    { repeat },
+    { selected, hovered },
+  );
+
+  // The pure builder is the single source of the tower's geometry parts (shaft
+  // + any crenellation teeth). The renderer just maps each part to a mesh.
+  const parts = buildTower(piece);
 
   const handleOver = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== "select") return;
@@ -73,27 +91,32 @@ export function TowerMesh({ piece }: TowerMeshProps) {
         position={[piece.position.x, baseY, piece.position.y]}
         rotation={[0, -deg2rad(piece.rotation), 0]}
       >
-        <mesh
-          position={[0, piece.height / 2, 0]}
-          castShadow
-          receiveShadow
+        {/* Pointer handlers on the inner group catch hits on any part (shaft or
+            a merlon), so the whole tower picks as one piece. */}
+        <group
           onPointerOver={handleOver}
           onPointerOut={handleOut}
           onClick={handleClick}
         >
-          {piece.profile === "round" ? (
-            <cylinderGeometry args={[fp.radius, fp.radius, piece.height, 48]} />
-          ) : (
-            <boxGeometry args={[fp.radius * 2, piece.height, fp.radius * 2]} />
-          )}
-          <meshStandardMaterial
-            color={color}
-            emissive={SELECT_TINT}
-            emissiveIntensity={emissiveIntensity}
-            roughness={0.85}
-            metalness={0}
-          />
-        </mesh>
+          {parts.map((part, i) => (
+            <mesh
+              key={i}
+              position={[part.position.x, part.position.y, part.position.z]}
+              rotation={part.shape === "box" ? [0, part.rotationY, 0] : undefined}
+              castShadow
+              receiveShadow
+              material={material}
+            >
+              {part.shape === "cylinder" ? (
+                <cylinderGeometry
+                  args={[part.radius, part.radius, part.height, part.radialSegments]}
+                />
+              ) : (
+                <boxGeometry args={[part.size.x, part.size.y, part.size.z]} />
+              )}
+            </mesh>
+          ))}
+        </group>
       </group>
 
       {showGizmo && (

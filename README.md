@@ -4,10 +4,12 @@ A browser-based, **3D-first** castle builder. You place semantic castle pieces
 directly in a 3D scene on a grid, then tweak each piece's parameters. Everything
 runs client-side — no backend.
 
-> **Phase 1a (foundation)** is implemented: place / select / move / delete the
-> **tower** on a flat ground grid, with undo/redo and autosave. Materials,
-> face-attach, walls, gatehouses, gates, moats, and ramps/stairs come in later
-> phases (see `CLAUDE.md` → "Phase plan"). `CLAUDE.md` is the source of truth for
+> **Phases 1a–1b** are implemented: place / select / move / delete the **tower**
+> on a flat ground grid, with undo/redo and autosave, **procedural materials**
+> (solid + stone / brick / thatch / opaque-water patterns), **crenellations**,
+> and **face-attach** placement (seat a tower on top of another). Walls,
+> gatehouses, gates, moats, and ramps/stairs come in later phases (see
+> `CLAUDE.md` → "Phase plan"). `CLAUDE.md` is the source of truth for
 > conventions, the data model, and scope.
 
 ## Tech stack
@@ -36,10 +38,11 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | Orbit camera | Drag (left mouse). Locked so it can't go below the ground. |
 | Zoom | Mouse wheel / trackpad scroll |
 | Pan | Right-drag |
-| **Tower tool** | Click the ground to place a tower at the grid-snapped cursor; the tool stays active. `Esc` cancels. |
+| **Tower tool** | Click the ground to place a tower at the grid-snapped cursor; the tool stays active. The ghost preview tints **blue on the ground** and **green when face-attaching** to a piece top. `Esc` cancels the in-progress placement. |
+| **Face-attach** | With the Tower tool, click over an existing tower's footprint: the new tower seats on that tower's **top** (its stored base = the lower tower's top), instead of on the ground. |
 | **Select tool** | Click a tower to select it; click empty ground to deselect. |
 | Move a selected tower | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). |
-| Edit a tower | Use the properties panel (profile, radius/half-extent, height). |
+| Edit a tower | Use the properties panel: profile, radius/half-extent, height, **crenellations** (toggle + merlon/tooth size), and **material** (solid color or a stone / brick / thatch / water pattern with two colors). |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
 | Export / Import | Buttons in the bottom bar — save or load a design as JSON. |
@@ -63,12 +66,16 @@ the XZ plane. Horizontal grid snap is **0.1 m**, vertical **0.5 m**, rotation
 ```
 src/
   geometry/            pure, unit-tested math (grid snapping, ground height,
-                       tower footprint, iso camera) — no React, no store
+                       tower footprint, the tower builder, support/face-attach
+                       resolution, iso camera) — no React, no store
+  materials/           MaterialRef → THREE factory + procedural pattern textures
+                       (stone/brick/thatch/opaque-water), generated at runtime
   store/               Zustand store, schema v1, undo/redo, ?e2e=1 test accessor
   persistence/         autosave + JSON export/import + schema validation
   components/preview/   the R3F scene, ground/grid, pieces, gizmo, placement
   components/ui/        toolbar, properties panel, file/export bar
   hooks/                keyboard shortcuts, autosave wiring
+scripts/               CI guard scripts (ground-seam, e2e-no-canvas)
 e2e/                   Playwright tests (assert on DOM/store state, never canvas pixels)
 ```
 
@@ -79,10 +86,28 @@ Build command `npm run build`, output `dist/`.
 
 ## Testing notes
 
-- Unit tests cover grid snapping, `groundHeightAt`, the tower footprint helper,
-  the iso camera, store actions + undo/redo, and schema validation.
-- E2E tests cover clean boot, placing a tower, select + delete, undo/redo, and
-  autosave surviving a reload. They read app state through a test-only accessor
-  exposed at `window.__CASTLE_E2E__` when the page is opened with `?e2e=1`, and
-  never assert on the WebGL canvas pixels.
-- CI (GitHub Actions) runs the build, Vitest, and Playwright on every push/PR.
+- Unit tests cover grid snapping, `groundHeightAt`, the tower footprint helper
+  (a radius/half-extent/rotation sweep), the tower builder + crenellations,
+  support/face-attach resolution, the iso camera, store actions + undo/redo
+  (one snapshot per committed op, with the 100-entry cap and eviction), the
+  procedural-material logic (opaque output, pattern ids), and schema validation.
+- E2E tests cover clean boot, placing a tower, select + delete, undo/redo,
+  autosave surviving a reload, toggling crenellations + changing material, and
+  face-attach (a tower seated on another). They read app state through a
+  test-only accessor exposed at `window.__CASTLE_E2E__` when the page is opened
+  with `?e2e=1`, and never assert on the WebGL canvas pixels.
+- CI (GitHub Actions) runs two guard scripts, the build, Vitest, and Playwright
+  on every push/PR.
+
+### CI guards (`scripts/`, also `npm run guards`)
+
+- **`guard:ground-seam`** — fails if a **literal Y-position** is assigned inline
+  (`position={[x, <literal>, z]}`, `.position.y = <literal>`, `.position.setY(…)`,
+  `.position.set(x, <literal>, z)`). Vertical placement must route through
+  `groundHeightAt(x, z)` / a surface top so raised terrain stays additive.
+  Legitimate cases (e.g. the lighting rig) live in a small justified allowlist at
+  the top of `scripts/check-ground-seam.mjs`; add a `{ file, y, reason }` entry
+  to allowlist a new one.
+- **`guard:e2e-canvas`** — fails if any `e2e/**` spec reads canvas/WebGL pixels
+  (`getContext`, `toDataURL`, `readPixels`, `.screenshot(`, `toMatchSnapshot(`).
+  E2E must assert on DOM/store state via the `?e2e=1` accessor only.

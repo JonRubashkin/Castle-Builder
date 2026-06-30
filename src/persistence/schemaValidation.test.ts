@@ -78,6 +78,36 @@ describe("validateDesign", () => {
     delete (bad.pieces[0] as Partial<{ position: unknown }>).position;
     expect(() => validateDesign(bad)).toThrow(DesignValidationError);
   });
+
+  it("accepts every allowlisted pattern id (allowlist derives from PATTERN_IDS)", () => {
+    for (const pattern of ["stone", "brick", "thatch", "water"]) {
+      const d = validDesign();
+      (d.pieces[0] as { material: unknown }).material = {
+        kind: "pattern",
+        pattern,
+        colorA: "#9a958c",
+        colorB: "#5b564e",
+      };
+      expect(() => validateDesign(d)).not.toThrow();
+    }
+  });
+
+  it("rejects an unknown pattern id", () => {
+    const bad = validDesign();
+    (bad.pieces[0] as { material: unknown }).material = {
+      kind: "pattern",
+      pattern: "lava",
+      colorA: "#fff",
+      colorB: "#000",
+    };
+    expect(() => validateDesign(bad)).toThrow(/unknown/);
+  });
+
+  it("rejects a malformed material", () => {
+    const bad = validDesign();
+    (bad.pieces[0] as { material: unknown }).material = { kind: "solid" };
+    expect(() => validateDesign(bad)).toThrow(DesignValidationError);
+  });
 });
 
 describe("parseDesignJSON", () => {

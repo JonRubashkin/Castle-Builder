@@ -16,6 +16,11 @@ export async function selectedId(page: Page): Promise<string | null> {
   return page.evaluate(() => (window as any).__CASTLE_E2E__.getSelectedId());
 }
 
+/** Read the pieces array straight from the store via the ?e2e=1 accessor. */
+export async function pieces(page: Page): Promise<any[]> {
+  return page.evaluate(() => (window as any).__CASTLE_E2E__.getPieces());
+}
+
 /** Click the center of the 3D canvas (over the world origin / a tower at origin). */
 export async function clickCanvasCenter(page: Page): Promise<void> {
   await page.locator("canvas").first().click();
