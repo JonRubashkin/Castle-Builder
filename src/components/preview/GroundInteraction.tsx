@@ -7,9 +7,15 @@ import { groundHeightAt } from "../../geometry/ground";
 import { GRID_LAYER } from "./stacking";
 import { isCleanClick } from "./interaction";
 import { TowerGhost } from "./TowerGhost";
+import { GatehouseGhost } from "./GatehouseGhost";
 import type { Vec2 } from "../../store/schema";
 
 const PLANE_SIZE = 400;
+
+// The single-anchor placement tools (one click → one whole piece) share a ghost
+// preview driven by the support rule.
+const ANCHOR_TOOLS = ["tower", "gatehouse"] as const;
+type AnchorTool = (typeof ANCHOR_TOOLS)[number];
 
 interface GhostState {
   position: Vec2;
@@ -22,14 +28,20 @@ interface GhostState {
  * transparency) plane that handles the ground raycast for placement and for
  * empty-space deselect. Placement resolves the support height under the anchor
  * via resolveSupportAt — ground (groundHeightAt) when over empty ground, or an
- * existing piece's top via FACE-ATTACH when the anchor is over a piece. Tower
- * meshes stopPropagation on their own clicks only in the Select tool, so in the
- * Tower tool the ground point under the cursor still drives the anchor.
+ * existing piece's top via FACE-ATTACH when the anchor is over a piece. Piece
+ * meshes stopPropagation on their own clicks only in the Select tool, so in a
+ * placement tool the ground point under the cursor still drives the anchor.
  */
 export function GroundInteraction() {
   const tool = useStore((s) => s.tool);
   const pieces = useStore((s) => s.design.pieces);
   const [ghost, setGhost] = useState<GhostState | null>(null);
+
+  const anchorTool: AnchorTool | null = (ANCHOR_TOOLS as readonly string[]).includes(
+    tool,
+  )
+    ? (tool as AnchorTool)
+    : null;
 
   // Esc cancels an in-progress placement (clears the ghost); the tool stays
   // active so the next move re-shows it.
@@ -48,7 +60,7 @@ export function GroundInteraction() {
   };
 
   const handleMove = (e: ThreeEvent<PointerEvent>) => {
-    if (tool !== "tower") {
+    if (!anchorTool) {
       if (ghost) setGhost(null);
       return;
     }
@@ -61,11 +73,15 @@ export function GroundInteraction() {
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     if (!isCleanClick(e.nativeEvent.clientX, e.nativeEvent.clientY)) return;
-    if (tool === "tower") {
+    if (anchorTool) {
       const position = snapHorizontalVec2({ x: e.point.x, y: e.point.z });
       // Seat through the support rule: ground or a face-attach surface top.
       const support = resolveSupportAt(position, pieces);
-      useStore.getState().addTower({ position, base: support.base });
+      if (anchorTool === "tower") {
+        useStore.getState().addTower({ position, base: support.base });
+      } else {
+        useStore.getState().addGatehouse({ position, base: support.base });
+      }
     } else {
       // Select tool: clicking empty ground deselects.
       useStore.getState().selectPiece(null);
@@ -91,8 +107,11 @@ export function GroundInteraction() {
         <meshBasicMaterial colorWrite={false} depthWrite={false} />
       </mesh>
 
-      {tool === "tower" && ghost && (
-        <TowerGhost
+      {ghost && anchorTool === "tower" && (
+        <TowerGhost position={ghost.position} base={ghost.base} onSurface={ghost.onSurface} />
+      )}
+      {ghost && anchorTool === "gatehouse" && (
+        <GatehouseGhost
           position={ghost.position}
           base={ghost.base}
           onSurface={ghost.onSurface}

@@ -3,6 +3,7 @@ import { useStore, type Tool } from "../../store/store";
 const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: "select", label: "Select", hint: "Pick, move, and edit pieces" },
   { id: "tower", label: "Tower", hint: "Click the ground to place a tower" },
+  { id: "gatehouse", label: "Gatehouse", hint: "Click the ground to place a gatehouse" },
 ];
 
 export function Toolbar() {

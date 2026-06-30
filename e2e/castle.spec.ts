@@ -177,6 +177,33 @@ test.describe("Castle Builder — phases 1a–1b", () => {
       .toBe(0);
   });
 
+  test("place a gatehouse, edit a param, rotate, and delete it", async ({ page }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Gatehouse" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    expect((await pieces(page))[0].kind).toBe("gatehouse");
+
+    // Select it to reveal the gatehouse panel.
+    await page.getByRole("button", { name: "Select" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+    await expect(page.getByRole("heading", { name: "Gatehouse" })).toBeVisible();
+
+    // Edit a parameter (width) and assert the store updates.
+    await page.getByLabel("Width").fill("9");
+    await expect.poll(async () => (await pieces(page))[0].width).toBe(9);
+
+    // Rotate (15° steps): set 45° and assert it sticks (a multiple of 15).
+    await page.getByLabel("Rotation").fill("45");
+    await expect.poll(async () => (await pieces(page))[0].rotation).toBe(45);
+
+    // Delete via the panel button.
+    await page.getByRole("button", { name: "Delete gatehouse" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+  });
+
   test("face-attach: a tower placed over another seats on its top", async ({
     page,
   }) => {

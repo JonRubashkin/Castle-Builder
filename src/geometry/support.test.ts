@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveSupportAt } from "./support";
-import type { Tower } from "../store/schema";
+import type { Gatehouse, Tower } from "../store/schema";
 
 function tower(overrides: Partial<Tower> = {}): Tower {
   return {
@@ -12,6 +12,23 @@ function tower(overrides: Partial<Tower> = {}): Tower {
     profile: "round",
     radius: 2,
     height: 8,
+    crenellated: false,
+    merlonSize: 0.6,
+    material: { kind: "solid", color: "#999" },
+    ...overrides,
+  };
+}
+
+function gatehouse(overrides: Partial<Gatehouse> = {}): Gatehouse {
+  return {
+    id: "g",
+    kind: "gatehouse",
+    position: { x: 0, y: 0 },
+    base: 0,
+    rotation: 0,
+    width: 6,
+    depth: 4,
+    height: 6,
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
@@ -71,5 +88,24 @@ describe("resolveSupportAt — the face-attach support rule", () => {
     const onTop = resolveSupportAt({ x: 0, y: 0 }, [sq]);
     expect(onTop.onSurface).toBe(true);
     expect(onTop.base).toBe(6);
+  });
+
+  it("seats on a gatehouse top via its oriented-rectangle footprint", () => {
+    const g = gatehouse({ id: "g", width: 6, depth: 4, height: 6 });
+    // Center is inside the 6×4 footprint → on top (base = height = 6).
+    const onTop = resolveSupportAt({ x: 0, y: 0 }, [g]);
+    expect(onTop.onSurface).toBe(true);
+    expect(onTop.surfaceId).toBe("g");
+    expect(onTop.base).toBe(6);
+    // A point beyond the depth half-extent (2) is outside → ground.
+    expect(resolveSupportAt({ x: 0, y: 3 }, [g]).onSurface).toBe(false);
+  });
+
+  it("picks the highest overlapping top across mixed piece kinds", () => {
+    const g = gatehouse({ id: "g", height: 6 }); // top = 6
+    const t = tower({ id: "t", radius: 2, height: 10 }); // top = 10
+    const r = resolveSupportAt({ x: 0, y: 0 }, [g, t]);
+    expect(r.base).toBe(10);
+    expect(r.surfaceId).toBe("t");
   });
 });

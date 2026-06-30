@@ -105,6 +105,13 @@ export const DEFAULT_TOWER_HEIGHT = 8;
 export const DEFAULT_TOWER_RADIUS = 2;
 export const DEFAULT_MERLON_SIZE = 0.6;
 
+export const DEFAULT_WALL_HEIGHT = 4;
+export const DEFAULT_WALL_THICKNESS = 0.6;
+
+export const DEFAULT_GATEHOUSE_WIDTH = 6;
+export const DEFAULT_GATEHOUSE_DEPTH = 4;
+export const DEFAULT_GATEHOUSE_HEIGHT = 6;
+
 export const DEFAULT_STONE_MATERIAL: MaterialRef = {
   kind: "solid",
   color: "#9a958c",
