@@ -444,7 +444,9 @@ placement path and the gizmo-move path resolving base through the *same* helper.
   `resolveSupportAt`) and a top hit (+ its surface height) and returns
   `{ position, base, rotation, rise, run }`: `base` = the bottom support height,
   `rise` = top − bottom world height (clamped ≥ 0), `run` = the XZ distance (floored
-  to a minimum), `rotation` = the bottom→top heading **snapped to 15°**.
+  to a minimum), `rotation` = the **EXACT** bottom→top heading (`rampRotationToward`,
+  normalized to [0, 360) with **NO 15° snap**). The ramp is the one piece that aims
+  *precisely* at its connection — every other piece keeps the 15° rotation grid.
   **Literal connection — no slope-smartness**; a steep result is honest feedback,
   tuned in the panel after.
 - **Two-click placement** (`GroundInteraction`): first click = the **bottom**
@@ -458,8 +460,11 @@ placement path and the gizmo-move path resolving base through the *same* helper.
   cancels; the tool stays active.
 - One pure footprint helper (`rampFootprint`, a run × width oriented rectangle via
   `rectFootprint`) feeds both the mesh and the hit-test. Selection + gizmo move
-  (base re-resolved through `resolveSupportAt` at the bottom anchor) + rotate (15°)
-  + delete + a param panel (style ramp/stair, rise, run, width, rotation, material).
+  (base re-resolved through `resolveSupportAt` at the bottom anchor) + **free
+  rotation** (the ramp's panel rotation field is un-snapped — 1° steps, normalized
+  to [0, 360) — consistent with the precise two-click aim; all other pieces stay on
+  the 15° grid) + delete + a param panel (style ramp/stair, rise, run, width,
+  rotation, material).
 - A **ramp is NOT a face-attach target** — its top is a slope, not a flat surface.
   It can be placed **onto** flat tops, but **nothing face-attaches onto it** and the
   top-click surface set excludes ramps (`resolveSupportAt` ignores ramps as both a

@@ -166,18 +166,28 @@ describe("resolveRampConnection — two-point connection math", () => {
     expect(c.run).toBeCloseTo(5, 6);
   });
 
-  it("rotation snaps to 15° steps and points approximately at the top", () => {
-    // Top in the +X direction → local +Z must point +X → 270° (a multiple of 15).
+  it("aims exactly at the top — an axis-aligned heading is exact", () => {
+    // Top in the +X direction → local +Z must point +X → exactly 270°.
     const c = resolveRampConnection(
       { point: { x: 0, y: 0 }, base: 0, height: 0 },
       { point: { x: 6, y: 0 }, height: 4 },
     );
-    expect(c.rotation % 15).toBe(0);
     expect(c.rotation).toBe(270);
   });
 
-  it("run is the literal click distance even when the heading snaps", () => {
-    // An off-axis top: distance is honest, only the heading is rounded to 15°.
+  it("aims exactly at the top with NO 15° snap on a non-15°-multiple heading", () => {
+    // An off-axis top whose heading is not a multiple of 15°: the ramp uses the
+    // EXACT bottom→top heading (ramps aim precisely; other pieces snap to 15°).
+    const bottom = { point: { x: 0, y: 0 }, base: 0, height: 0 };
+    const top = { point: { x: 3, y: 5 }, height: 4 };
+    const exact = ((Math.atan2(-3, 5) * 180) / Math.PI + 360) % 360;
+    const c = resolveRampConnection(bottom, top);
+    expect(c.rotation).toBeCloseTo(exact, 6);
+    expect(c.rotation % 15).not.toBe(0); // not on the 15° grid — proves no snap
+  });
+
+  it("run is the literal click distance regardless of the heading", () => {
+    // An off-axis top: distance is honest (the heading is exact, not rounded).
     const top = { point: { x: 3, y: 5 }, height: 4 };
     const c = resolveRampConnection({ point: { x: 0, y: 0 }, base: 0, height: 0 }, top);
     expect(c.run).toBeCloseTo(Math.hypot(3, 5), 6);

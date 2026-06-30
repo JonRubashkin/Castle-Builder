@@ -47,13 +47,26 @@ function NumberField({
   );
 }
 
-/** Rotation about Y, snapped to 15° steps on commit (the schema's rotation grid). */
+/** Normalize a free (un-snapped) rotation to [0, 360), avoiding -0. */
+function normalizeRotation(degrees: number): number {
+  const normalized = ((degrees % 360) + 360) % 360;
+  return normalized === 0 ? 0 : Number(normalized.toFixed(6));
+}
+
+/**
+ * Rotation about Y. By default it snaps to 15° steps on commit (the schema's
+ * rotation grid). The RAMP passes `free` so its rotation stays exact — consistent
+ * with the ramp's precise two-click aim (it connects two points, so it is the one
+ * piece that is NOT constrained to the 15° grid).
+ */
 function RotationField({
   value,
   onCommit,
+  free = false,
 }: {
   value: number;
   onCommit: (deg: number) => void;
+  free?: boolean;
 }) {
   return (
     <label className="panel__field">
@@ -61,11 +74,11 @@ function RotationField({
       <input
         type="number"
         aria-label="Rotation"
-        step={15}
+        step={free ? 1 : 15}
         value={value}
         onChange={(e) => {
           const v = Number(e.target.value);
-          if (Number.isFinite(v)) onCommit(snapRotation(v));
+          if (Number.isFinite(v)) onCommit(free ? normalizeRotation(v) : snapRotation(v));
         }}
       />
       <span className="panel__unit">°</span>
@@ -489,6 +502,7 @@ function RampPanel({ ramp }: { ramp: Ramp }) {
       />
       <RotationField
         value={ramp.rotation}
+        free
         onCommit={(deg) => updatePiece(ramp.id, { rotation: deg })}
       />
 
