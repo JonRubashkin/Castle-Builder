@@ -352,24 +352,49 @@ Phase 1 is sub-phased so each prompt ships one coherent slice (one prompt = one
 coherent commit), the discipline carried over from the prior project. Build in
 order; do not build ahead.
 
-**Current status: phases 1a–1b are implemented.** You can place / select /
-move / delete towers on the flat grid, with undo/redo, autosave, Export/Import
-JSON, and CI green. **1b added:** the material system (MaterialRef + runtime
-procedural patterns stone/brick/thatch/opaque-water + `materialRefToThreeMaterial`
-in `src/materials/`) wired through the tower mesh with a panel Fill control;
-**crenellations** as a per-piece parameter built in the tower's pure builder
-(`src/geometry/towerBuilder.ts`); and **face-attach** placement
-(`src/geometry/support.ts` → `resolveSupportAt`) so a tower seats on top of
-another tower's top, the stored base routed through the support-height rule
-(`groundHeightAt` over ground, the surface top over a piece — never a hardcoded
-0). **Both the placement path and the gizmo-move path resolve base through the
-same `resolveSupportAt` helper** — the move path calls it inside the store's
-`setPiecePositionTransient` (excluding the dragged piece from its own support),
-so dragging an existing tower over another climbs onto its top live and dragging
-it back over open ground drops it to the ground, all as one undoable step.
-Two CI guard scripts were added (see Verification). One scoping note still
-holds: **working-plane-at-arbitrary-height placement is deferred** — face-attach
-covers the only stacking 1b needs. Next up is **1c** (wall run + gatehouse).
+**Current status: phases 1a–1c are implemented.** You can place / select /
+move / delete towers, gatehouses, and wall runs on the flat grid, with
+undo/redo, autosave, Export/Import JSON, and CI green. **1b added:** the
+material system (MaterialRef + runtime procedural patterns
+stone/brick/thatch/opaque-water + `materialRefToThreeMaterial` in
+`src/materials/`) wired through the piece meshes with a panel Fill control;
+**crenellations** as a per-piece parameter; and **face-attach** placement
+(`src/geometry/support.ts` → `resolveSupportAt`) so a piece seats on top of
+another, the stored base routed through the support-height rule (`groundHeightAt`
+over ground, the surface top over a piece — never a hardcoded 0), with the
+placement path and the gizmo-move path resolving base through the *same* helper.
+
+**1c added the masses — the gatehouse and the wall run:**
+- The **crenellation logic is now one shared pure helper**
+  (`src/geometry/crenellations.ts`: `merlonCount` + `roundCrenellations` +
+  `rectCrenellations`) used by the tower, gatehouse, and wall-run builders — no
+  duplicated merlon code. The tower renders identically after the extraction.
+- The **gatehouse** is a single-anchor rectangular mass
+  (`src/geometry/gatehouseBuilder.ts`), with every tower affordance reused:
+  ground-raycast + face-attach placement and gizmo-move through
+  `resolveSupportAt`, selection, rotation (15° steps via the panel), a param
+  panel (width/depth/height + crenellations + material), delete.
+- The **wall run** is a two-point horizontal piece
+  (`src/geometry/wallRunBuilder.ts`). Placement is **two clicks** (start, then
+  end with a live preview + length label); single segment, Esc cancels, a
+  zero-length wall is ignored, endpoints snap to 0.1 m. A **whole-wall gizmo
+  move** shifts both endpoints together; **per-endpoint handles** reshape one
+  end (both undoable). **Base resolves via `resolveSupportAt` at the START
+  anchor** — the whole wall sits at that one height; a wall spanning two
+  different support heights is *not* handled in phase 1 (it takes the start
+  anchor's height, which in this flat phase is always ground).
+- Each rectangular piece's footprint comes from **one helper feeding both mesh
+  and hit-test**: `gatehouseFootprint` / `wallRunFootprint`, both built on the
+  shared `rectFootprint.ts` (oriented-rectangle contains, with the correct
+  non-square rotation inverse). `resolveSupportAt` now seats on any footprinted
+  piece's top (tower / gatehouse / wall run), picking the highest overlap.
+- **Wall↔tower junctions overlap; there is no attachment relationship** (a wall
+  whose end lands against a tower simply overlaps it — deliberate, per the
+  geometry rules).
+
+One scoping note still holds: **working-plane-at-arbitrary-height placement is
+deferred** — face-attach covers the stacking these phases need. Next up is
+**1d** (gate + moat).
 
 - **1a (foundation):** fresh Vite + React + TS repo; Zustand store + schema v1 +
   undo/redo; the 3D scene with the carried-over orthographic iso camera + orbit/zoom

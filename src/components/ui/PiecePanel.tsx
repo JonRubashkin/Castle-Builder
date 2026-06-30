@@ -1,18 +1,28 @@
 import { useStore } from "../../store/store";
-import type { MaterialRef, PatternId, Tower } from "../../store/schema";
+import type {
+  Gatehouse,
+  MaterialRef,
+  PatternId,
+  Piece,
+  Tower,
+  WallRun,
+} from "../../store/schema";
 import { PATTERN_IDS } from "../../materials/patterns";
+import { snapRotation } from "../../geometry/grid";
 
 function NumberField({
   label,
   value,
   min,
   step,
+  unit = "m",
   onCommit,
 }: {
   label: string;
   value: number;
   min: number;
   step: number;
+  unit?: string;
   onCommit: (v: number) => void;
 }) {
   return (
@@ -20,7 +30,8 @@ function NumberField({
       <span>{label}</span>
       <input
         type="number"
-        min={min}
+        aria-label={label}
+        min={Number.isFinite(min) ? min : undefined}
         step={step}
         value={value}
         onChange={(e) => {
@@ -28,12 +39,38 @@ function NumberField({
           if (Number.isFinite(v) && v >= min) onCommit(v);
         }}
       />
-      <span className="panel__unit">m</span>
+      <span className="panel__unit">{unit}</span>
     </label>
   );
 }
 
-// Sensible default two-tone palettes when switching a tower into a pattern fill.
+/** Rotation about Y, snapped to 15° steps on commit (the schema's rotation grid). */
+function RotationField({
+  value,
+  onCommit,
+}: {
+  value: number;
+  onCommit: (deg: number) => void;
+}) {
+  return (
+    <label className="panel__field">
+      <span>Rotation</span>
+      <input
+        type="number"
+        aria-label="Rotation"
+        step={15}
+        value={value}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (Number.isFinite(v)) onCommit(snapRotation(v));
+        }}
+      />
+      <span className="panel__unit">°</span>
+    </label>
+  );
+}
+
+// Sensible default two-tone palettes when switching into a pattern fill.
 const PATTERN_DEFAULTS: Record<PatternId, { colorA: string; colorB: string }> = {
   stone: { colorA: "#9a958c", colorB: "#5b564e" },
   brick: { colorA: "#9b4b3b", colorB: "#6e3328" },
@@ -103,9 +140,7 @@ function MaterialControl({
               type="color"
               aria-label="Color A"
               value={material.colorA}
-              onChange={(e) =>
-                onChange({ ...material, colorA: e.target.value })
-              }
+              onChange={(e) => onChange({ ...material, colorA: e.target.value })}
             />
           </label>
           <label className="panel__field">
@@ -114,9 +149,7 @@ function MaterialControl({
               type="color"
               aria-label="Color B"
               value={material.colorB}
-              onChange={(e) =>
-                onChange({ ...material, colorB: e.target.value })
-              }
+              onChange={(e) => onChange({ ...material, colorB: e.target.value })}
             />
           </label>
         </>
@@ -125,26 +158,45 @@ function MaterialControl({
   );
 }
 
-export function PiecePanel() {
-  const selectedId = useStore((s) => s.selectedId);
-  const piece = useStore((s) =>
-    s.design.pieces.find((p) => p.id === s.selectedId),
+/** The shared crenellations toggle + (when on) the merlon-size field. */
+function CrenellationFields({
+  crenellated,
+  merlonSize,
+  onToggle,
+  onMerlonSize,
+}: {
+  crenellated: boolean;
+  merlonSize: number;
+  onToggle: (v: boolean) => void;
+  onMerlonSize: (v: number) => void;
+}) {
+  return (
+    <>
+      <label className="panel__field panel__field--check">
+        <span>Crenellated</span>
+        <input
+          type="checkbox"
+          aria-label="Crenellated"
+          checked={crenellated}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+      </label>
+      {crenellated && (
+        <NumberField
+          label="Merlon size"
+          value={merlonSize}
+          min={0.1}
+          step={0.1}
+          onCommit={onMerlonSize}
+        />
+      )}
+    </>
   );
+}
+
+function TowerPanel({ tower }: { tower: Tower }) {
   const updatePiece = useStore((s) => s.updatePiece);
   const deletePiece = useStore((s) => s.deletePiece);
-
-  if (!selectedId || !piece || piece.kind !== "tower") {
-    return (
-      <aside className="panel panel--empty" aria-label="Selection">
-        <p className="panel__hint">
-          Select a piece to edit it. With the Tower tool, click the ground to
-          place a tower.
-        </p>
-      </aside>
-    );
-  }
-
-  const tower = piece as Tower;
   const radiusLabel = tower.profile === "round" ? "Radius" : "Half-extent";
 
   return (
@@ -156,9 +208,7 @@ export function PiecePanel() {
         <select
           value={tower.profile}
           onChange={(e) =>
-            updatePiece(tower.id, {
-              profile: e.target.value as Tower["profile"],
-            })
+            updatePiece(tower.id, { profile: e.target.value as Tower["profile"] })
           }
         >
           <option value="round">Round</option>
@@ -180,41 +230,193 @@ export function PiecePanel() {
         step={0.5}
         onCommit={(v) => updatePiece(tower.id, { height: v })}
       />
+      <RotationField
+        value={tower.rotation}
+        onCommit={(deg) => updatePiece(tower.id, { rotation: deg })}
+      />
 
-      <label className="panel__field panel__field--check">
-        <span>Crenellated</span>
-        <input
-          type="checkbox"
-          aria-label="Crenellated"
-          checked={tower.crenellated}
-          onChange={(e) =>
-            updatePiece(tower.id, { crenellated: e.target.checked })
-          }
-        />
-      </label>
-
-      {tower.crenellated && (
-        <NumberField
-          label="Merlon size"
-          value={tower.merlonSize}
-          min={0.1}
-          step={0.1}
-          onCommit={(v) => updatePiece(tower.id, { merlonSize: v })}
-        />
-      )}
+      <CrenellationFields
+        crenellated={tower.crenellated}
+        merlonSize={tower.merlonSize}
+        onToggle={(v) => updatePiece(tower.id, { crenellated: v })}
+        onMerlonSize={(v) => updatePiece(tower.id, { merlonSize: v })}
+      />
 
       <MaterialControl
         material={tower.material}
         onChange={(m) => updatePiece(tower.id, { material: m })}
       />
 
-      <button
-        type="button"
-        className="panel__delete"
-        onClick={() => deletePiece(tower.id)}
-      >
+      <button type="button" className="panel__delete" onClick={() => deletePiece(tower.id)}>
         Delete tower
       </button>
     </aside>
   );
+}
+
+function GatehousePanel({ gatehouse }: { gatehouse: Gatehouse }) {
+  const updatePiece = useStore((s) => s.updatePiece);
+  const deletePiece = useStore((s) => s.deletePiece);
+
+  return (
+    <aside
+      className="panel"
+      aria-label="Gatehouse properties"
+      data-piece-id={gatehouse.id}
+    >
+      <h2 className="panel__title">Gatehouse</h2>
+
+      <NumberField
+        label="Width"
+        value={gatehouse.width}
+        min={0.5}
+        step={0.1}
+        onCommit={(v) => updatePiece(gatehouse.id, { width: v })}
+      />
+      <NumberField
+        label="Depth"
+        value={gatehouse.depth}
+        min={0.5}
+        step={0.1}
+        onCommit={(v) => updatePiece(gatehouse.id, { depth: v })}
+      />
+      <NumberField
+        label="Height"
+        value={gatehouse.height}
+        min={0.5}
+        step={0.5}
+        onCommit={(v) => updatePiece(gatehouse.id, { height: v })}
+      />
+      <RotationField
+        value={gatehouse.rotation}
+        onCommit={(deg) => updatePiece(gatehouse.id, { rotation: deg })}
+      />
+
+      <CrenellationFields
+        crenellated={gatehouse.crenellated}
+        merlonSize={gatehouse.merlonSize}
+        onToggle={(v) => updatePiece(gatehouse.id, { crenellated: v })}
+        onMerlonSize={(v) => updatePiece(gatehouse.id, { merlonSize: v })}
+      />
+
+      <MaterialControl
+        material={gatehouse.material}
+        onChange={(m) => updatePiece(gatehouse.id, { material: m })}
+      />
+
+      <button
+        type="button"
+        className="panel__delete"
+        onClick={() => deletePiece(gatehouse.id)}
+      >
+        Delete gatehouse
+      </button>
+    </aside>
+  );
+}
+
+function WallRunPanel({ wall }: { wall: WallRun }) {
+  const updatePiece = useStore((s) => s.updatePiece);
+  const setWallEndpoint = useStore((s) => s.setWallEndpoint);
+  const deletePiece = useStore((s) => s.deletePiece);
+  const length = Math.hypot(wall.end.x - wall.position.x, wall.end.y - wall.position.y);
+
+  return (
+    <aside className="panel" aria-label="Wall properties" data-piece-id={wall.id}>
+      <h2 className="panel__title">Wall</h2>
+      <p className="panel__hint">Length {length.toFixed(2)} m</p>
+
+      <NumberField
+        label="Height"
+        value={wall.height}
+        min={0.5}
+        step={0.5}
+        onCommit={(v) => updatePiece(wall.id, { height: v })}
+      />
+      <NumberField
+        label="Thickness"
+        value={wall.thickness}
+        min={0.1}
+        step={0.1}
+        onCommit={(v) => updatePiece(wall.id, { thickness: v })}
+      />
+
+      {/* Endpoint number fields — the dragging handles are the primary affordance
+          (see WallRunMesh); these are the precise/keyboard path. Each routes
+          through setWallEndpoint so the base re-resolves at the start anchor. */}
+      <NumberField
+        label="Start X"
+        value={wall.position.x}
+        min={-Infinity}
+        step={0.1}
+        onCommit={(v) => setWallEndpoint(wall.id, "start", { x: v, y: wall.position.y })}
+      />
+      <NumberField
+        label="Start Z"
+        value={wall.position.y}
+        min={-Infinity}
+        step={0.1}
+        onCommit={(v) => setWallEndpoint(wall.id, "start", { x: wall.position.x, y: v })}
+      />
+      <NumberField
+        label="End X"
+        value={wall.end.x}
+        min={-Infinity}
+        step={0.1}
+        onCommit={(v) => setWallEndpoint(wall.id, "end", { x: v, y: wall.end.y })}
+      />
+      <NumberField
+        label="End Z"
+        value={wall.end.y}
+        min={-Infinity}
+        step={0.1}
+        onCommit={(v) => setWallEndpoint(wall.id, "end", { x: wall.end.x, y: v })}
+      />
+
+      <CrenellationFields
+        crenellated={wall.crenellated}
+        merlonSize={wall.merlonSize}
+        onToggle={(v) => updatePiece(wall.id, { crenellated: v })}
+        onMerlonSize={(v) => updatePiece(wall.id, { merlonSize: v })}
+      />
+
+      <MaterialControl
+        material={wall.material}
+        onChange={(m) => updatePiece(wall.id, { material: m })}
+      />
+
+      <button type="button" className="panel__delete" onClick={() => deletePiece(wall.id)}>
+        Delete wall
+      </button>
+    </aside>
+  );
+}
+
+function EmptyPanel() {
+  return (
+    <aside className="panel panel--empty" aria-label="Selection">
+      <p className="panel__hint">
+        Select a piece to edit it. With a placement tool, click the ground to
+        place a piece.
+      </p>
+    </aside>
+  );
+}
+
+export function PiecePanel() {
+  const piece = useStore((s) =>
+    s.design.pieces.find((p) => p.id === s.selectedId),
+  ) as Piece | undefined;
+
+  if (!piece) return <EmptyPanel />;
+  switch (piece.kind) {
+    case "tower":
+      return <TowerPanel tower={piece} />;
+    case "gatehouse":
+      return <GatehousePanel gatehouse={piece} />;
+    case "wallRun":
+      return <WallRunPanel wall={piece} />;
+    default:
+      return <EmptyPanel />;
+  }
 }

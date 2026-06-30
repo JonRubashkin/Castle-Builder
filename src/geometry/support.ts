@@ -7,11 +7,14 @@
 // existing pieces, it returns the base to STORE on the new piece. It routes
 // vertical placement through groundHeightAt (over empty ground) or the hit
 // surface's top (over a piece), NEVER a hardcoded value. It reuses the SAME
-// footprint helper the renderer uses, so the hit-test can't drift from the mesh.
+// footprint helpers the renderers use, so the hit-test can't drift from a mesh.
 
 import type { Piece, Vec2 } from "../store/schema";
 import { groundHeightAt } from "./ground";
 import { footprintContains, towerFootprint } from "./towerFootprint";
+import { gatehouseFootprint } from "./gatehouseFootprint";
+import { wallRunFootprint } from "./wallRunFootprint";
+import { rectFootprintContains } from "./rectFootprint";
 
 export interface SupportResult {
   /** The base to store on the new piece (worldY underside = groundHeightAt + base). */
@@ -22,15 +25,37 @@ export interface SupportResult {
   surfaceId: string | null;
 }
 
-/** World Y of a tower's top face (its support surface for a piece placed on it). */
-function pieceTopWorldY(piece: Extract<Piece, { kind: "tower" }>): number {
-  return groundHeightAt(piece.position.x, piece.position.y) + piece.base + piece.height;
+/** Does `anchor` lie over this piece's footprint? (Same helpers the meshes use.) */
+function pieceContainsAnchor(piece: Piece, anchor: Vec2): boolean {
+  switch (piece.kind) {
+    case "tower":
+      return footprintContains(towerFootprint(piece), anchor);
+    case "gatehouse":
+      return rectFootprintContains(gatehouseFootprint(piece), anchor);
+    case "wallRun":
+      return rectFootprintContains(wallRunFootprint(piece), anchor);
+    default:
+      return false; // gate/ramp/moat are not stackable surfaces in this phase
+  }
+}
+
+/** World Y of a piece's top face (the surface a piece placed on it seats upon). */
+function pieceTopWorldY(piece: Piece): number | null {
+  switch (piece.kind) {
+    case "tower":
+    case "gatehouse":
+    case "wallRun":
+      // Each carries a height; its anchor seats at groundHeightAt + base.
+      return groundHeightAt(piece.position.x, piece.position.y) + piece.base + piece.height;
+    default:
+      return null;
+  }
 }
 
 /**
  * Resolve the support under `anchor` against the existing pieces. If the anchor
  * lies over one or more piece footprints, the new piece seats on the HIGHEST
- * top; otherwise it seats on the ground. Phase 1b stacks towers only.
+ * top; otherwise it seats on the ground.
  */
 export function resolveSupportAt(anchor: Vec2, pieces: Piece[]): SupportResult {
   const groundY = groundHeightAt(anchor.x, anchor.y);
@@ -38,9 +63,9 @@ export function resolveSupportAt(anchor: Vec2, pieces: Piece[]): SupportResult {
   let surfaceId: string | null = null;
 
   for (const piece of pieces) {
-    if (piece.kind !== "tower") continue; // only towers exist / stack in 1b
-    if (!footprintContains(towerFootprint(piece), anchor)) continue;
     const top = pieceTopWorldY(piece);
+    if (top === null) continue;
+    if (!pieceContainsAnchor(piece, anchor)) continue;
     if (top > bestTop) {
       bestTop = top;
       surfaceId = piece.id;

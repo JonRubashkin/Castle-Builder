@@ -1,20 +1,31 @@
 import { create } from "zustand";
 import {
   createEmptyDesign,
+  DEFAULT_GATEHOUSE_DEPTH,
+  DEFAULT_GATEHOUSE_HEIGHT,
+  DEFAULT_GATEHOUSE_WIDTH,
   DEFAULT_MERLON_SIZE,
   DEFAULT_STONE_MATERIAL,
   DEFAULT_TOWER_HEIGHT,
   DEFAULT_TOWER_RADIUS,
+  DEFAULT_WALL_HEIGHT,
+  DEFAULT_WALL_THICKNESS,
   type Design,
+  type Gatehouse,
   type Piece,
   type Tower,
   type Vec2,
+  type WallRun,
 } from "./schema";
 import { resolveSupportAt } from "../geometry/support";
+import { snapHorizontalVec2 } from "../geometry/grid";
 
 export const HISTORY_CAP = 100;
 
-export type Tool = "select" | "tower";
+export type Tool = "select" | "tower" | "gatehouse" | "wallRun";
+
+/** Which endpoint of a wall run an edit targets. */
+export type WallEndpoint = "start" | "end";
 
 interface History {
   past: Design[];
@@ -37,12 +48,16 @@ export interface StoreState {
 
   // --- committed mutations (each pushes one history entry) ---
   addTower: (input: { position: Vec2; base: number }) => string;
+  addGatehouse: (input: { position: Vec2; base: number }) => string;
+  addWallRun: (input: { position: Vec2; end: Vec2; base: number }) => string;
   updatePiece: (id: string, patch: Partial<Piece>) => void;
+  setWallEndpoint: (id: string, which: WallEndpoint, point: Vec2) => void;
   deletePiece: (id: string) => void;
 
   // --- transient interaction (drag / gizmo) ---
   beginTransient: () => void;
   setPiecePositionTransient: (id: string, position: Vec2) => void;
+  setWallEndpointTransient: (id: string, which: WallEndpoint, point: Vec2) => void;
   commitTransient: () => void;
   cancelTransient: () => void;
 
@@ -123,10 +138,70 @@ export const useStore = create<StoreState>((set, get) => {
       return id;
     },
 
+    addGatehouse: ({ position, base }) => {
+      const id = nextId();
+      const gatehouse: Gatehouse = {
+        id,
+        kind: "gatehouse",
+        position: { ...position },
+        base,
+        rotation: 0,
+        width: DEFAULT_GATEHOUSE_WIDTH,
+        depth: DEFAULT_GATEHOUSE_DEPTH,
+        height: DEFAULT_GATEHOUSE_HEIGHT,
+        crenellated: false,
+        merlonSize: DEFAULT_MERLON_SIZE,
+        material: DEFAULT_STONE_MATERIAL,
+      };
+      commit((design) => {
+        design.pieces.push(gatehouse);
+        return design;
+      });
+      return id;
+    },
+
+    addWallRun: ({ position, end, base }) => {
+      const id = nextId();
+      const wall: WallRun = {
+        id,
+        kind: "wallRun",
+        position: { ...position },
+        end: { ...end },
+        base,
+        rotation: 0, // unused for wall runs; the two points define direction
+        height: DEFAULT_WALL_HEIGHT,
+        thickness: DEFAULT_WALL_THICKNESS,
+        crenellated: false,
+        merlonSize: DEFAULT_MERLON_SIZE,
+        material: DEFAULT_STONE_MATERIAL,
+      };
+      commit((design) => {
+        design.pieces.push(wall);
+        return design;
+      });
+      return id;
+    },
+
     updatePiece: (id, patch) => {
       commit((design) => {
         const piece = design.pieces.find((p) => p.id === id);
         if (piece) Object.assign(piece, patch);
+        return design;
+      });
+    },
+
+    setWallEndpoint: (id, which, point) => {
+      commit((design) => {
+        const piece = design.pieces.find((p) => p.id === id);
+        if (piece && piece.kind === "wallRun") {
+          const snapped = snapHorizontalVec2(point);
+          if (which === "start") piece.position = snapped;
+          else piece.end = snapped;
+          // Re-resolve the base at the START anchor (the wall's support rule),
+          // excluding the wall itself so it can't seat on its own footprint.
+          const others = design.pieces.filter((p) => p.id !== id);
+          piece.base = resolveSupportAt(piece.position, others).base;
+        }
         return design;
       });
     },
@@ -153,15 +228,41 @@ export const useStore = create<StoreState>((set, get) => {
         const design = clone(state.design);
         const piece = design.pieces.find((p) => p.id === id);
         if (piece) {
-          piece.position = { ...position };
+          if (piece.kind === "wallRun") {
+            // A whole-wall move shifts BOTH endpoints by the same delta, so the
+            // wall keeps its shape. `position` is the new START anchor.
+            const dx = position.x - piece.position.x;
+            const dy = position.y - piece.position.y;
+            piece.position = { ...position };
+            piece.end = { x: piece.end.x + dx, y: piece.end.y + dy };
+          } else {
+            piece.position = { ...position };
+          }
           // Resolve the dragged piece's base through the SAME support rule the
           // placement path uses (resolveSupportAt): groundHeightAt over open
           // ground, an existing piece's top via face-attach. The piece being
           // moved is excluded so it can't seat on its own footprint. This is
           // the single source of truth — no parallel ground-only logic and no
-          // hardcoded ground-y in the move path.
+          // hardcoded ground-y in the move path. (Walls resolve at the start
+          // anchor, i.e. `position`.)
           const others = design.pieces.filter((p) => p.id !== id);
-          piece.base = resolveSupportAt(position, others).base;
+          piece.base = resolveSupportAt(piece.position, others).base;
+        }
+        return { design };
+      });
+    },
+
+    setWallEndpointTransient: (id, which, point) => {
+      set((state) => {
+        const design = clone(state.design);
+        const piece = design.pieces.find((p) => p.id === id);
+        if (piece && piece.kind === "wallRun") {
+          // Move ONE endpoint, reshaping the wall live (caller has grid-snapped).
+          if (which === "start") piece.position = { ...point };
+          else piece.end = { ...point };
+          // Base re-resolves at the START anchor (the wall's support rule).
+          const others = design.pieces.filter((p) => p.id !== id);
+          piece.base = resolveSupportAt(piece.position, others).base;
         }
         return { design };
       });
