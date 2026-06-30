@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveSupportAt } from "./support";
-import type { Gatehouse, Tower } from "../store/schema";
+import type { Gate, Gatehouse, Moat, Tower } from "../store/schema";
 
 function tower(overrides: Partial<Tower> = {}): Tower {
   return {
@@ -107,5 +107,52 @@ describe("resolveSupportAt — the face-attach support rule", () => {
     const r = resolveSupportAt({ x: 0, y: 0 }, [g, t]);
     expect(r.base).toBe(10);
     expect(r.surfaceId).toBe("t");
+  });
+
+  it("a GATE placed over a piece face-attaches to that piece's top", () => {
+    const g = gatehouse({ id: "host", height: 6 });
+    // The gate's own placement anchor resolves against the host's footprint.
+    const r = resolveSupportAt({ x: 0, y: 0 }, [g]);
+    expect(r.onSurface).toBe(true);
+    expect(r.base).toBe(6);
+  });
+
+  it("a gate is NOT itself a stackable surface (nothing seats on a gate)", () => {
+    const gate: Gate = {
+      id: "gate",
+      kind: "gate",
+      position: { x: 0, y: 0 },
+      base: 0,
+      rotation: 0,
+      width: 2.4,
+      height: 3.2,
+      material: { kind: "solid", color: "#6b4a2b" },
+    };
+    expect(resolveSupportAt({ x: 0, y: 0 }, [gate])).toEqual({
+      base: 0,
+      onSurface: false,
+      surfaceId: null,
+    });
+  });
+
+  it("a MOAT is ground-only: it is never a face-attach surface (water-on-a-tower)", () => {
+    const moat: Moat = {
+      id: "moat",
+      kind: "moat",
+      position: { x: 0, y: 0 },
+      base: 0,
+      rotation: 0,
+      shape: "ring",
+      outerRadius: 9,
+      innerRadius: 6,
+      material: { kind: "pattern", pattern: "water", colorA: "#2f6f9f", colorB: "#1b4a6b" },
+    };
+    // An anchor over the moat's footprint still resolves to the ground — a moat
+    // is not a surface other pieces seat upon.
+    expect(resolveSupportAt({ x: 7, y: 0 }, [moat])).toEqual({
+      base: 0,
+      onSurface: false,
+      surfaceId: null,
+    });
   });
 });

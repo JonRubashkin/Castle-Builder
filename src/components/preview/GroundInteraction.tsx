@@ -8,14 +8,16 @@ import { GRID_LAYER } from "./stacking";
 import { isCleanClick } from "./interaction";
 import { TowerGhost } from "./TowerGhost";
 import { GatehouseGhost } from "./GatehouseGhost";
+import { GateGhost } from "./GateGhost";
 import { WallGhost } from "./WallGhost";
+import { MoatRingGhost, MoatSegmentGhost } from "./MoatGhost";
 import type { Vec2 } from "../../store/schema";
 
 const PLANE_SIZE = 400;
 
 // The single-anchor placement tools (one click → one whole piece) share a ghost
-// preview driven by the support rule.
-const ANCHOR_TOOLS = ["tower", "gatehouse"] as const;
+// preview driven by the support rule (ground or face-attach).
+const ANCHOR_TOOLS = ["tower", "gatehouse", "gate"] as const;
 type AnchorTool = (typeof ANCHOR_TOOLS)[number];
 
 interface GhostState {
@@ -27,23 +29,28 @@ interface GhostState {
 /**
  * The ground-plane interaction surface. It is an invisible (color-write-off, no
  * transparency) plane that handles the ground raycast for placement and for
- * empty-space deselect. Placement resolves the support height under the anchor
- * via resolveSupportAt — ground (groundHeightAt) when over empty ground, or an
- * existing piece's top via FACE-ATTACH when the anchor is over a piece.
+ * empty-space deselect.
  *
- * Tools: the single-anchor tools (tower, gatehouse) place one whole piece per
- * click with a ghost preview. The wall-run tool is TWO clicks — first sets the
- * start, the second (with a live preview + length label) sets the end. Esc
- * cancels an in-progress placement; a zero-length wall is ignored.
+ * Tools:
+ *  • Single-anchor (tower, gatehouse, GATE): place one whole piece per click with
+ *    a ghost preview; the base resolves via resolveSupportAt — ground
+ *    (groundHeightAt) over empty ground, or a piece top via FACE-ATTACH.
+ *  • Wall run: TWO clicks (start, then end) with a live preview + length label.
+ *  • Moat: GROUND-ONLY, never face-attach. Its sub-mode chooses ring vs. segment.
+ *    Ring is single-anchor + radii (panel); segment is two clicks (start, end)
+ *    with width from the panel.
+ *
+ * Esc cancels an in-progress placement; a zero-length wall/segment is ignored.
  */
 export function GroundInteraction() {
   const tool = useStore((s) => s.tool);
+  const moatShape = useStore((s) => s.moatShape);
   const pieces = useStore((s) => s.design.pieces);
   const [ghost, setGhost] = useState<GhostState | null>(null);
-  // Wall drafting: the committed start (after the first click) and the live
-  // cursor (the would-be second endpoint).
-  const [wallStart, setWallStart] = useState<Vec2 | null>(null);
-  const [wallCursor, setWallCursor] = useState<Vec2 | null>(null);
+  // Two-point drafting (a wall, or a segment moat): the committed start (after the
+  // first click) and the live cursor (the would-be second endpoint).
+  const [draftStart, setDraftStart] = useState<Vec2 | null>(null);
+  const [draftCursor, setDraftCursor] = useState<Vec2 | null>(null);
 
   const anchorTool: AnchorTool | null = (ANCHOR_TOOLS as readonly string[]).includes(
     tool,
@@ -51,22 +58,27 @@ export function GroundInteraction() {
     ? (tool as AnchorTool)
     : null;
 
-  // Reset any in-progress wall draft when leaving the wall tool.
-  useEffect(() => {
-    if (tool !== "wallRun") {
-      setWallStart(null);
-      setWallCursor(null);
-    }
-  }, [tool]);
+  // Which tools draw with two clicks (a live start→end draft).
+  const isTwoPoint = tool === "wallRun" || (tool === "moat" && moatShape === "segment");
+  // The moat ring tool follows the cursor with a single-anchor ghost (ground-only).
+  const isMoatRing = tool === "moat" && moatShape === "ring";
 
-  // Esc cancels an in-progress placement (the ghost and any wall draft); the
-  // tool stays active so the next move re-shows the preview.
+  // Reset any in-progress two-point draft when it no longer applies.
+  useEffect(() => {
+    if (!isTwoPoint) {
+      setDraftStart(null);
+      setDraftCursor(null);
+    }
+  }, [isTwoPoint]);
+
+  // Esc cancels an in-progress placement (the ghost and any draft); the tool stays
+  // active so the next move re-shows the preview.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setGhost(null);
-        setWallStart(null);
-        setWallCursor(null);
+        setDraftStart(null);
+        setDraftCursor(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -85,8 +97,11 @@ export function GroundInteraction() {
       return;
     }
     if (ghost) setGhost(null);
-    if (tool === "wallRun") {
-      setWallCursor(snapHorizontalVec2({ x: e.point.x, y: e.point.z }));
+    const cursor = snapHorizontalVec2({ x: e.point.x, y: e.point.z });
+    if (isTwoPoint) {
+      setDraftCursor(cursor);
+    } else if (isMoatRing) {
+      setDraftCursor(cursor); // reuse the cursor slot to drive the ring ghost
     }
   };
 
@@ -103,26 +118,41 @@ export function GroundInteraction() {
       const support = resolveSupportAt(point, pieces);
       if (anchorTool === "tower") {
         useStore.getState().addTower({ position: point, base: support.base });
-      } else {
+      } else if (anchorTool === "gatehouse") {
         useStore.getState().addGatehouse({ position: point, base: support.base });
+      } else {
+        useStore.getState().addGate({ position: point, base: support.base });
       }
       return;
     }
 
-    if (tool === "wallRun") {
-      if (!wallStart) {
-        setWallStart(point);
-        setWallCursor(point);
+    if (isMoatRing) {
+      // Ground-only single-anchor ring (radii come from defaults / the panel).
+      useStore.getState().addMoatRing({ position: point });
+      return;
+    }
+
+    if (isTwoPoint) {
+      if (!draftStart) {
+        setDraftStart(point);
+        setDraftCursor(point);
         return;
       }
-      // Second click: ignore a zero-length wall; otherwise place a single
-      // segment and stay active for the next wall (no chaining this phase).
-      if (point.x === wallStart.x && point.y === wallStart.y) return;
-      // The wall seats at one base, resolved at the START anchor.
-      const support = resolveSupportAt(wallStart, pieces);
-      useStore.getState().addWallRun({ position: wallStart, end: point, base: support.base });
-      setWallStart(null);
-      setWallCursor(null);
+      // Second click: ignore a zero-length draft; otherwise place a single piece
+      // and stay active for the next one (no chaining this phase).
+      if (point.x === draftStart.x && point.y === draftStart.y) return;
+      if (tool === "wallRun") {
+        // The wall seats at one base, resolved at the START anchor (face-attach).
+        const support = resolveSupportAt(draftStart, pieces);
+        useStore
+          .getState()
+          .addWallRun({ position: draftStart, end: point, base: support.base });
+      } else {
+        // Segment moat: ground-only (the store resolves the base from the ground).
+        useStore.getState().addMoatSegment({ position: draftStart, end: point });
+      }
+      setDraftStart(null);
+      setDraftCursor(null);
       return;
     }
 
@@ -135,7 +165,8 @@ export function GroundInteraction() {
   const planeY = groundHeightAt(0, 0) + GRID_LAYER;
 
   // The wall preview's base resolves at the start anchor (the wall's support rule).
-  const wallSupport = wallStart ? resolveSupportAt(wallStart, pieces) : null;
+  const wallSupport =
+    tool === "wallRun" && draftStart ? resolveSupportAt(draftStart, pieces) : null;
 
   return (
     <group>
@@ -162,13 +193,20 @@ export function GroundInteraction() {
           onSurface={ghost.onSurface}
         />
       )}
-      {tool === "wallRun" && wallStart && wallCursor && wallSupport && (
+      {ghost && anchorTool === "gate" && (
+        <GateGhost position={ghost.position} base={ghost.base} onSurface={ghost.onSurface} />
+      )}
+      {tool === "wallRun" && draftStart && draftCursor && wallSupport && (
         <WallGhost
-          start={wallStart}
-          end={wallCursor}
+          start={draftStart}
+          end={draftCursor}
           base={wallSupport.base}
           onSurface={wallSupport.onSurface}
         />
+      )}
+      {isMoatRing && draftCursor && <MoatRingGhost position={draftCursor} />}
+      {tool === "moat" && moatShape === "segment" && draftStart && draftCursor && (
+        <MoatSegmentGhost start={draftStart} end={draftCursor} />
       )}
     </group>
   );
