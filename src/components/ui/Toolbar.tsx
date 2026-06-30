@@ -5,6 +5,8 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: "tower", label: "Tower", hint: "Click the ground to place a tower" },
   { id: "gatehouse", label: "Gatehouse", hint: "Click the ground to place a gatehouse" },
   { id: "wallRun", label: "Wall", hint: "Click a start then an end point to draw a wall" },
+  { id: "gate", label: "Gate", hint: "Click to place a timber gate (positions in an archway / against a wall)" },
+  { id: "moat", label: "Moat", hint: "Place opaque-water as a ring or a segment (sub-mode in the panel)" },
 ];
 
 export function Toolbar() {

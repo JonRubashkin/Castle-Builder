@@ -288,6 +288,199 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect(w.end).toEqual({ x: 4, y: 6 }); // end moved
   });
 
+  test("place a gate, edit a param, rotate (15° steps), and delete it", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Gate", exact: true }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    expect((await pieces(page))[0].kind).toBe("gate");
+
+    // Select it to reveal the panel. The gate is an open lattice (bars with
+    // gaps), so a center click can slip through a gap — select via the store
+    // accessor for determinism (a real 3D bar pick can't be driven without
+    // canvas pixels, which e2e must never touch).
+    await page.getByRole("button", { name: "Select" }).click();
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+    await expect(page.getByRole("heading", { name: "Gate" })).toBeVisible();
+
+    // Edit width.
+    await page.getByLabel("Width").fill("3");
+    await expect.poll(async () => (await pieces(page))[0].width).toBe(3);
+
+    // Rotate to 90° (a multiple of 15) so the gate can face across an archway.
+    await page.getByLabel("Rotation").fill("90");
+    await expect.poll(async () => (await pieces(page))[0].rotation).toBe(90);
+
+    // Delete via the panel button.
+    await page.getByRole("button", { name: "Delete gate" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("gate face-attaches onto a wall top when placed over it", async ({ page }) => {
+    await openApp(page);
+
+    // A wall on the ground through the origin (top at base + height).
+    const wallTop = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const id = api
+        .getState()
+        .addWallRun({ position: { x: -6, y: 0 }, end: { x: 6, y: 0 }, base: 0 });
+      const w = api.getPieces().find((p: any) => p.id === id);
+      return w.base + w.height;
+    });
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    // Place a gate over the wall (the origin is on the wall footprint).
+    await page.getByRole("button", { name: "Gate", exact: true }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const gate = (await pieces(page)).find((p) => p.kind === "gate");
+    expect(gate.base).toBeCloseTo(wallTop, 6); // seated on the wall top
+  });
+
+  test("place a RING moat, edit its radii, and delete it", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    // The Moat tool defaults to the ring sub-mode.
+    await page.getByRole("button", { name: "Moat", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Ring" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    const m = (await pieces(page))[0];
+    expect(m.kind).toBe("moat");
+    expect(m.shape).toBe("ring");
+    // Ground-only: seated at base 0 (groundHeightAt is 0 in this flat phase).
+    expect(m.base).toBe(0);
+    // Default opaque-water material.
+    expect(m.material).toMatchObject({ kind: "pattern", pattern: "water" });
+
+    // Select via the store accessor (a ring's center is a hole, so a center click
+    // would miss it — a real 3D band pick can't be driven without canvas pixels).
+    await page.evaluate((id) => {
+      (window as any).__CASTLE_E2E__.getState().selectPiece(id);
+    }, m.id);
+    await expect(page.getByRole("heading", { name: "Moat" })).toBeVisible();
+
+    // Edit the radii live and assert the store updates.
+    await page.getByLabel("Outer radius").fill("12");
+    await expect.poll(async () => (await pieces(page))[0].outerRadius).toBe(12);
+    await page.getByLabel("Inner radius").fill("8");
+    await expect.poll(async () => (await pieces(page))[0].innerRadius).toBe(8);
+
+    // Delete via the panel button.
+    await page.getByRole("button", { name: "Delete moat" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("place a SEGMENT moat with two clicks, edit width, and delete it", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Moat", exact: true }).click();
+    // Switch the sub-mode to segment.
+    await page.getByRole("button", { name: "Segment" }).click();
+    await expect(page.getByRole("button", { name: "Segment" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // Two-point placement: first click sets the start (no piece yet).
+    await clickCanvasAt(page, 250, 320);
+    expect(await pieceCount(page)).toBe(0);
+    // Second click (a clearly different point) places one segment moat.
+    await clickCanvasAt(page, 520, 220);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    const m = (await pieces(page))[0];
+    expect(m.kind).toBe("moat");
+    expect(m.shape).toBe("segment");
+    expect(m.base).toBe(0); // ground-only
+    // Endpoints are distinct and grid-snapped (0.1 m).
+    expect(m.position).not.toEqual(m.end);
+    for (const v of [m.position.x, m.position.y, m.end.x, m.end.y]) {
+      expect(Math.abs(v * 10 - Math.round(v * 10))).toBeLessThan(1e-6);
+    }
+
+    // Select and edit width.
+    await page.evaluate((id) => {
+      (window as any).__CASTLE_E2E__.getState().selectPiece(id);
+    }, m.id);
+    await expect(page.getByRole("heading", { name: "Moat" })).toBeVisible();
+    await page.getByLabel("Width").fill("4");
+    await expect.poll(async () => (await pieces(page))[0].width).toBe(4);
+
+    // Delete via the panel button (the Width input still has focus, so a Delete
+    // keypress would be swallowed by the text field rather than deleting).
+    await page.getByRole("button", { name: "Delete moat" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("a segment moat moves ground-only (gizmo transient never face-attaches)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // A tall tower at the origin, and a segment moat passing over it.
+    const ids = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      const moat = api
+        .getState()
+        .addMoatSegment({ position: { x: -20, y: 0 }, end: { x: -10, y: 0 } });
+      return { moat };
+    });
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    // Drag the moat's start anchor onto the tower (the live transient the gizmo
+    // drives). A moat must stay ground-only — base 0, never the tower top.
+    await page.evaluate((id) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setPiecePositionTransient(id, { x: 0, y: 0 });
+      api.getState().commitTransient();
+    }, ids.moat);
+
+    const m = (await pieces(page)).find((p) => p.id === ids.moat);
+    expect(m.base).toBe(0); // ground-only, even sitting over a tower
+  });
+
   test("face-attach: a tower placed over another seats on its top", async ({
     page,
   }) => {

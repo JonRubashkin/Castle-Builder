@@ -112,9 +112,32 @@ export const DEFAULT_GATEHOUSE_WIDTH = 6;
 export const DEFAULT_GATEHOUSE_DEPTH = 4;
 export const DEFAULT_GATEHOUSE_HEIGHT = 6;
 
+export const DEFAULT_GATE_WIDTH = 2.4;
+export const DEFAULT_GATE_HEIGHT = 3.2;
+
+// Moat (opaque water). Ring: outer/inner radii about the anchor. Segment: a
+// straight strip of `width`. These are starting values, tuned for looks.
+export const DEFAULT_MOAT_OUTER_RADIUS = 9;
+export const DEFAULT_MOAT_INNER_RADIUS = 6;
+export const DEFAULT_MOAT_WIDTH = 3;
+
 export const DEFAULT_STONE_MATERIAL: MaterialRef = {
   kind: "solid",
   color: "#9a958c",
+};
+
+export const DEFAULT_TIMBER_MATERIAL: MaterialRef = {
+  kind: "solid",
+  color: "#6b4a2b",
+};
+
+// OPAQUE water (never real transparency): a rippled two-tone water pattern. Its
+// watery read is texture + a slight sheen in materialRefToThreeMaterial, not alpha.
+export const DEFAULT_WATER_MATERIAL: MaterialRef = {
+  kind: "pattern",
+  pattern: "water",
+  colorA: "#2f6f9f",
+  colorB: "#1b4a6b",
 };
 
 export function createEmptyDesign(name = "Untitled Castle"): Design {

@@ -173,6 +173,15 @@ button:disabled {
   cursor: pointer;
 }
 
+.panel__submode {
+  display: flex;
+  gap: 6px;
+}
+
+.panel__submode .toolbar__btn {
+  flex: 1;
+}
+
 .panel__delete {
   margin-top: 4px;
   border-color: #6e3a3a;

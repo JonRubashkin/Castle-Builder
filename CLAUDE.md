@@ -352,9 +352,9 @@ Phase 1 is sub-phased so each prompt ships one coherent slice (one prompt = one
 coherent commit), the discipline carried over from the prior project. Build in
 order; do not build ahead.
 
-**Current status: phases 1a–1c are implemented.** You can place / select /
-move / delete towers, gatehouses, and wall runs on the flat grid, with
-undo/redo, autosave, Export/Import JSON, and CI green. **1b added:** the
+**Current status: phases 1a–1d are implemented.** You can place / select /
+move / delete towers, gatehouses, wall runs, gates, and moats on the flat grid,
+with undo/redo, autosave, Export/Import JSON, and CI green. **1b added:** the
 material system (MaterialRef + runtime procedural patterns
 stone/brick/thatch/opaque-water + `materialRefToThreeMaterial` in
 `src/materials/`) wired through the piece meshes with a panel Fill control;
@@ -392,9 +392,46 @@ placement path and the gizmo-move path resolving base through the *same* helper.
   whose end lands against a tower simply overlaps it — deliberate, per the
   geometry rules).
 
+**1d added the openings & water — the gate and the moat:**
+- The **gate** is a freestanding **timber portcullis grid**
+  (`src/geometry/gateBuilder.ts`: a lattice of vertical + horizontal bars; chosen
+  over a flat plank door because the open grid reads unmistakably as a gate and
+  looks correct standing in an archway). Phase 1 has **no CSG and no attachment**,
+  so the gate does **not** cut a real opening — it is a standalone mass the user
+  positions in a gatehouse archway or against a wall. Every tower affordance is
+  reused: ground-raycast + **face-attach** placement and gizmo-move through
+  `resolveSupportAt`, selection, rotation (15° steps so it can face across an
+  archway), a param panel (width / height + material Fill), delete. Its footprint
+  (`gateFootprint`, an oriented width × `GATE_THICKNESS` rectangle) feeds both the
+  mesh and the hit-test.
+- The **moat** is the first **non-box** piece and the first real test of the
+  **opaque-water rule** (`src/geometry/moatBuilder.ts` + `moatFootprint.ts`). It
+  renders through `materialRefToThreeMaterial` with the **water** pattern, which is
+  **OPAQUE** — texture + a slight sheen, **never** real alpha/opacity-below-1 (that
+  would reawaken the cutaway material-hiding bug). Two shapes share one builder:
+  - **ring:** an annulus between `innerRadius` and `outerRadius` about `position`,
+    lying flat at the ground. Hit-test = inside the outer circle AND outside the
+    inner (`ringFootprintContains`). Single-anchor placement (one click) + radii
+    from the panel (live geometry).
+  - **segment:** a straight rectangular water strip from `position` to `end` with
+    `width`, lying flat — an oriented rectangle reusing `rectFootprint`. Two-point
+    placement (click start, click end); width from the panel.
+  - The moat tool chooses ring vs. segment via a **panel sub-mode** (default ring),
+    surfaced in the empty-selection panel when the Moat tool is active.
+- The moat is **GROUND-ONLY**: it always seats at `groundHeightAt(position)` and
+  **never face-attaches** (water-on-a-tower is nonsensical). Its base still routes
+  through the ground-height rule (the underside is `groundHeightAt + base`, base
+  always the ground-relative 0), so raised terrain stays additive; it just does not
+  participate in face-attach (placement and the gizmo-move transient both keep it on
+  the ground). It is also **not a stackable surface** — nothing face-attaches onto a
+  moat (`resolveSupportAt` ignores it).
+- The moat water sits on its **own named stacking layer** (`WATER_LAYER` in
+  `src/components/preview/stacking.ts`, ground < grid < water < pieces) so the flat
+  sheet never z-fights the ground plane or grid.
+
 One scoping note still holds: **working-plane-at-arbitrary-height placement is
 deferred** — face-attach covers the stacking these phases need. Next up is
-**1d** (gate + moat).
+**1e** (ramp/stair — built last).
 
 - **1a (foundation):** fresh Vite + React + TS repo; Zustand store + schema v1 +
   undo/redo; the 3D scene with the carried-over orthographic iso camera + orbit/zoom

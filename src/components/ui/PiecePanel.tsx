@@ -1,7 +1,9 @@
 import { useStore } from "../../store/store";
 import type {
+  Gate,
   Gatehouse,
   MaterialRef,
+  Moat,
   PatternId,
   Piece,
   Tower,
@@ -392,7 +394,140 @@ function WallRunPanel({ wall }: { wall: WallRun }) {
   );
 }
 
+function GatePanel({ gate }: { gate: Gate }) {
+  const updatePiece = useStore((s) => s.updatePiece);
+  const deletePiece = useStore((s) => s.deletePiece);
+
+  return (
+    <aside className="panel" aria-label="Gate properties" data-piece-id={gate.id}>
+      <h2 className="panel__title">Gate</h2>
+      <p className="panel__hint">
+        A freestanding timber gate. Position it in a gatehouse archway or against
+        a wall — it does not cut a real opening.
+      </p>
+
+      <NumberField
+        label="Width"
+        value={gate.width}
+        min={0.3}
+        step={0.1}
+        onCommit={(v) => updatePiece(gate.id, { width: v })}
+      />
+      <NumberField
+        label="Height"
+        value={gate.height}
+        min={0.5}
+        step={0.1}
+        onCommit={(v) => updatePiece(gate.id, { height: v })}
+      />
+      <RotationField
+        value={gate.rotation}
+        onCommit={(deg) => updatePiece(gate.id, { rotation: deg })}
+      />
+
+      <MaterialControl
+        material={gate.material}
+        onChange={(m) => updatePiece(gate.id, { material: m })}
+      />
+
+      <button type="button" className="panel__delete" onClick={() => deletePiece(gate.id)}>
+        Delete gate
+      </button>
+    </aside>
+  );
+}
+
+function MoatPanel({ moat }: { moat: Moat }) {
+  const updatePiece = useStore((s) => s.updatePiece);
+  const deletePiece = useStore((s) => s.deletePiece);
+
+  return (
+    <aside className="panel" aria-label="Moat properties" data-piece-id={moat.id}>
+      <h2 className="panel__title">Moat</h2>
+      <p className="panel__hint">
+        Opaque water ({moat.shape}), seated flat at the ground.
+      </p>
+
+      {moat.shape === "ring" ? (
+        <>
+          <NumberField
+            label="Outer radius"
+            value={moat.outerRadius ?? 0}
+            min={0.5}
+            step={0.1}
+            onCommit={(v) => updatePiece(moat.id, { outerRadius: v })}
+          />
+          <NumberField
+            label="Inner radius"
+            value={moat.innerRadius ?? 0}
+            min={0}
+            step={0.1}
+            onCommit={(v) => updatePiece(moat.id, { innerRadius: v })}
+          />
+        </>
+      ) : (
+        <NumberField
+          label="Width"
+          value={moat.width ?? 0}
+          min={0.2}
+          step={0.1}
+          onCommit={(v) => updatePiece(moat.id, { width: v })}
+        />
+      )}
+
+      <MaterialControl
+        material={moat.material}
+        onChange={(m) => updatePiece(moat.id, { material: m })}
+      />
+
+      <button type="button" className="panel__delete" onClick={() => deletePiece(moat.id)}>
+        Delete moat
+      </button>
+    </aside>
+  );
+}
+
+/** The moat tool's ring/segment sub-mode (default ring), shown when the Moat tool
+ *  is active and nothing is selected — the analog of the old project's
+ *  wall/room sub-mode. */
+function MoatToolOptions() {
+  const moatShape = useStore((s) => s.moatShape);
+  const setMoatShape = useStore((s) => s.setMoatShape);
+  return (
+    <aside className="panel" aria-label="Moat tool options">
+      <h2 className="panel__title">Moat</h2>
+      <p className="panel__hint">
+        Choose a shape, then place. Ring: click once. Segment: click a start, then
+        an end.
+      </p>
+      <div className="panel__submode" role="radiogroup" aria-label="Moat shape">
+        <button
+          type="button"
+          className={moatShape === "ring" ? "toolbar__btn is-active" : "toolbar__btn"}
+          aria-pressed={moatShape === "ring"}
+          data-moat-shape="ring"
+          onClick={() => setMoatShape("ring")}
+        >
+          Ring
+        </button>
+        <button
+          type="button"
+          className={moatShape === "segment" ? "toolbar__btn is-active" : "toolbar__btn"}
+          aria-pressed={moatShape === "segment"}
+          data-moat-shape="segment"
+          onClick={() => setMoatShape("segment")}
+        >
+          Segment
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 function EmptyPanel() {
+  const tool = useStore((s) => s.tool);
+  // The Moat tool surfaces its ring/segment sub-mode here when nothing is selected.
+  if (tool === "moat") return <MoatToolOptions />;
   return (
     <aside className="panel panel--empty" aria-label="Selection">
       <p className="panel__hint">
@@ -416,6 +551,10 @@ export function PiecePanel() {
       return <GatehousePanel gatehouse={piece} />;
     case "wallRun":
       return <WallRunPanel wall={piece} />;
+    case "gate":
+      return <GatePanel gate={piece} />;
+    case "moat":
+      return <MoatPanel moat={piece} />;
     default:
       return <EmptyPanel />;
   }

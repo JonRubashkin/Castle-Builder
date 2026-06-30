@@ -1,31 +1,55 @@
 import { create } from "zustand";
 import {
   createEmptyDesign,
+  DEFAULT_GATE_HEIGHT,
+  DEFAULT_GATE_WIDTH,
   DEFAULT_GATEHOUSE_DEPTH,
   DEFAULT_GATEHOUSE_HEIGHT,
   DEFAULT_GATEHOUSE_WIDTH,
   DEFAULT_MERLON_SIZE,
+  DEFAULT_MOAT_INNER_RADIUS,
+  DEFAULT_MOAT_OUTER_RADIUS,
+  DEFAULT_MOAT_WIDTH,
   DEFAULT_STONE_MATERIAL,
+  DEFAULT_TIMBER_MATERIAL,
   DEFAULT_TOWER_HEIGHT,
   DEFAULT_TOWER_RADIUS,
   DEFAULT_WALL_HEIGHT,
   DEFAULT_WALL_THICKNESS,
+  DEFAULT_WATER_MATERIAL,
   type Design,
+  type Gate,
   type Gatehouse,
+  type Moat,
   type Piece,
   type Tower,
   type Vec2,
   type WallRun,
 } from "./schema";
 import { resolveSupportAt } from "../geometry/support";
+import { groundHeightAt } from "../geometry/ground";
 import { snapHorizontalVec2 } from "../geometry/grid";
 
 export const HISTORY_CAP = 100;
 
-export type Tool = "select" | "tower" | "gatehouse" | "wallRun";
+export type Tool = "select" | "tower" | "gatehouse" | "wallRun" | "gate" | "moat";
+
+/** The moat tool's sub-mode: a ring (annulus) or a straight segment. */
+export type MoatShape = "ring" | "segment";
 
 /** Which endpoint of a wall run an edit targets. */
 export type WallEndpoint = "start" | "end";
+
+/**
+ * The moat is OPAQUE water and seats ground-only — it never face-attaches (water
+ * on a tower top is nonsensical). Its base still routes through the ground-height
+ * rule (groundHeightAt is the single source for "where is the ground"), so raised
+ * terrain slots in later: base is the moat underside RELATIVE to ground, always 0.
+ */
+function groundOnlyBase(anchor: Vec2): number {
+  // worldY = groundHeightAt(anchor) + base; for a ground-seated piece base = 0.
+  return groundHeightAt(anchor.x, anchor.y) - groundHeightAt(anchor.x, anchor.y);
+}
 
 interface History {
   past: Design[];
@@ -35,6 +59,7 @@ interface History {
 export interface StoreState {
   design: Design;
   tool: Tool;
+  moatShape: MoatShape;
   selectedId: string | null;
   history: History;
   // Snapshot captured at the start of a transient interaction (drag/gizmo). While
@@ -44,12 +69,18 @@ export interface StoreState {
 
   // --- tool / selection ---
   setTool: (tool: Tool) => void;
+  setMoatShape: (shape: MoatShape) => void;
   selectPiece: (id: string | null) => void;
 
   // --- committed mutations (each pushes one history entry) ---
   addTower: (input: { position: Vec2; base: number }) => string;
   addGatehouse: (input: { position: Vec2; base: number }) => string;
   addWallRun: (input: { position: Vec2; end: Vec2; base: number }) => string;
+  addGate: (input: { position: Vec2; base: number }) => string;
+  // The moat is ground-only; the caller passes just the footprint, and the base
+  // is resolved from the ground rule (groundHeightAt), never face-attach.
+  addMoatRing: (input: { position: Vec2 }) => string;
+  addMoatSegment: (input: { position: Vec2; end: Vec2 }) => string;
   updatePiece: (id: string, patch: Partial<Piece>) => void;
   setWallEndpoint: (id: string, which: WallEndpoint, point: Vec2) => void;
   deletePiece: (id: string) => void;
@@ -108,11 +139,13 @@ export const useStore = create<StoreState>((set, get) => {
   return {
     design: createEmptyDesign(),
     tool: "tower",
+    moatShape: "ring",
     selectedId: null,
     history: { past: [], future: [] },
     pendingSnapshot: null,
 
     setTool: (tool) => set({ tool }),
+    setMoatShape: (moatShape) => set({ moatShape }),
     selectPiece: (id) =>
       set((state) => ({ selectedId: selectionStillValid(state.design, id) })),
 
@@ -182,6 +215,65 @@ export const useStore = create<StoreState>((set, get) => {
       return id;
     },
 
+    addGate: ({ position, base }) => {
+      const id = nextId();
+      const gate: Gate = {
+        id,
+        kind: "gate",
+        position: { ...position },
+        base,
+        rotation: 0,
+        width: DEFAULT_GATE_WIDTH,
+        height: DEFAULT_GATE_HEIGHT,
+        material: DEFAULT_TIMBER_MATERIAL,
+      };
+      commit((design) => {
+        design.pieces.push(gate);
+        return design;
+      });
+      return id;
+    },
+
+    addMoatRing: ({ position }) => {
+      const id = nextId();
+      const moat: Moat = {
+        id,
+        kind: "moat",
+        position: { ...position },
+        base: groundOnlyBase(position), // ground-only (no face-attach)
+        rotation: 0,
+        shape: "ring",
+        outerRadius: DEFAULT_MOAT_OUTER_RADIUS,
+        innerRadius: DEFAULT_MOAT_INNER_RADIUS,
+        material: DEFAULT_WATER_MATERIAL,
+      };
+      commit((design) => {
+        design.pieces.push(moat);
+        return design;
+      });
+      return id;
+    },
+
+    addMoatSegment: ({ position, end }) => {
+      const id = nextId();
+      const moat: Moat = {
+        id,
+        kind: "moat",
+        position: { ...position },
+        base: groundOnlyBase(position), // ground-only (no face-attach)
+        rotation: 0,
+        shape: "segment",
+        end: { ...end },
+        width: DEFAULT_MOAT_WIDTH,
+        material: DEFAULT_WATER_MATERIAL,
+      };
+      commit((design) => {
+        design.pieces.push(moat);
+        return design;
+      });
+      return id;
+    },
+
     updatePiece: (id, patch) => {
       commit((design) => {
         const piece = design.pieces.find((p) => p.id === id);
@@ -228,9 +320,13 @@ export const useStore = create<StoreState>((set, get) => {
         const design = clone(state.design);
         const piece = design.pieces.find((p) => p.id === id);
         if (piece) {
-          if (piece.kind === "wallRun") {
-            // A whole-wall move shifts BOTH endpoints by the same delta, so the
-            // wall keeps its shape. `position` is the new START anchor.
+          // Two-endpoint pieces (a wall run, or a SEGMENT moat) move as a rigid
+          // body: shift BOTH endpoints by the same delta so the piece keeps its
+          // shape. `position` is the new START anchor.
+          const twoPoint =
+            piece.kind === "wallRun" ||
+            (piece.kind === "moat" && piece.shape === "segment");
+          if (twoPoint && "end" in piece && piece.end) {
             const dx = position.x - piece.position.x;
             const dy = position.y - piece.position.y;
             piece.position = { ...position };
@@ -238,15 +334,19 @@ export const useStore = create<StoreState>((set, get) => {
           } else {
             piece.position = { ...position };
           }
-          // Resolve the dragged piece's base through the SAME support rule the
-          // placement path uses (resolveSupportAt): groundHeightAt over open
-          // ground, an existing piece's top via face-attach. The piece being
-          // moved is excluded so it can't seat on its own footprint. This is
-          // the single source of truth — no parallel ground-only logic and no
-          // hardcoded ground-y in the move path. (Walls resolve at the start
-          // anchor, i.e. `position`.)
-          const others = design.pieces.filter((p) => p.id !== id);
-          piece.base = resolveSupportAt(piece.position, others).base;
+          // The moat is GROUND-ONLY (no face-attach); its base routes through the
+          // ground-height rule, never an existing piece's top. Every other piece
+          // resolves its base through the SAME support rule the placement path
+          // uses (resolveSupportAt): groundHeightAt over open ground, a piece top
+          // via face-attach. The piece being moved is excluded so it can't seat
+          // on its own footprint. This is the single source of truth — no
+          // hardcoded ground-y. (Walls resolve at the start anchor, `position`.)
+          if (piece.kind === "moat") {
+            piece.base = groundOnlyBase(piece.position);
+          } else {
+            const others = design.pieces.filter((p) => p.id !== id);
+            piece.base = resolveSupportAt(piece.position, others).base;
+          }
         }
         return { design };
       });
