@@ -584,6 +584,57 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect(errors).toEqual([]);
   });
 
+  test("phase 1 complete: a mixed castle of all six kinds persists across reload", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    // Build a small mixed castle — one of every kind — via the store accessor
+    // (deterministic placement; e2e never reads canvas pixels).
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const s = api.getState();
+      s.addTower({ position: { x: 0, y: 0 }, base: 0 });
+      s.addGatehouse({ position: { x: 12, y: 0 }, base: 0 });
+      s.addWallRun({ position: { x: 2, y: 0 }, end: { x: 10, y: 0 }, base: 0 });
+      s.addGate({ position: { x: 12, y: 0 }, base: 0 });
+      s.addMoatRing({ position: { x: 0, y: 20 } });
+      s.addRamp({ position: { x: -8, y: 0 }, base: 0, rotation: 0, rise: 4, run: 6 });
+    });
+    await expect.poll(() => pieceCount(page)).toBe(6);
+
+    const kindsBefore = await page.evaluate(() =>
+      (window as any).__CASTLE_E2E__.getPieces().map((p: any) => p.kind).sort(),
+    );
+    expect(kindsBefore).toEqual([
+      "gate",
+      "gatehouse",
+      "moat",
+      "ramp",
+      "tower",
+      "wallRun",
+    ]);
+
+    // Let the debounced autosave flush, then reload and confirm all six survive.
+    await page.waitForTimeout(500);
+    await page.reload();
+    await page.waitForFunction(() => Boolean((window as any).__CASTLE_E2E__));
+
+    await expect.poll(() => pieceCount(page)).toBe(6);
+    const kindsAfter = await page.evaluate(() =>
+      (window as any).__CASTLE_E2E__.getPieces().map((p: any) => p.kind).sort(),
+    );
+    expect(kindsAfter).toEqual(kindsBefore);
+
+    expect(errors).toEqual([]);
+  });
+
   test("face-attach: a tower placed over another seats on its top", async ({
     page,
   }) => {

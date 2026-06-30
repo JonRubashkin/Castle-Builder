@@ -352,9 +352,11 @@ Phase 1 is sub-phased so each prompt ships one coherent slice (one prompt = one
 coherent commit), the discipline carried over from the prior project. Build in
 order; do not build ahead.
 
-**Current status: phases 1a–1d are implemented.** You can place / select /
-move / delete towers, gatehouses, wall runs, gates, and moats on the flat grid,
-with undo/redo, autosave, Export/Import JSON, and CI green. **1b added:** the
+**Current status: PHASE 1 IS COMPLETE (1a–1e).** The full kit-of-parts
+vocabulary exists. You can place / select / move / rotate / edit / delete
+towers, gatehouses, wall runs, gates, moats, and ramps/stairs on the flat grid,
+with undo/redo, autosave, Export/Import JSON (round-tripping all six kinds), and
+CI green. **1b added:** the
 material system (MaterialRef + runtime procedural patterns
 stone/brick/thatch/opaque-water + `materialRefToThreeMaterial` in
 `src/materials/`) wired through the piece meshes with a panel Fill control;
@@ -429,9 +431,43 @@ placement path and the gizmo-move path resolving base through the *same* helper.
   `src/components/preview/stacking.ts`, ground < grid < water < pieces) so the flat
   sheet never z-fights the ground plane or grid.
 
+**1e added the navigation piece — the ramp/stair (built LAST, closing phase 1):**
+- The **pure stair/ramp helper** (`src/geometry/rampBuilder.ts`, the analog of the
+  prior project's `computeStair`) returns geometry parts in local space (underside
+  at y=0, climbing along +Z). `style: "ramp"` → a single inclined slab from (0,0)
+  up to (rise, run), pitched about local X; `style: "stair"` → solid stepped
+  blocks, step count from a target riser (`STAIR_RISER_TARGET` ≈ 0.18 m), actual
+  riser = rise/steps, tread = run/steps. Degenerate (zero/negative) rise/run is
+  guarded (no parts). It is the **most-tested helper in phase 1**.
+- The ramp is the **only piece placed by connecting two points**. The pure
+  `resolveRampConnection` takes a bottom point (+ its support height via
+  `resolveSupportAt`) and a top hit (+ its surface height) and returns
+  `{ position, base, rotation, rise, run }`: `base` = the bottom support height,
+  `rise` = top − bottom world height (clamped ≥ 0), `run` = the XZ distance (floored
+  to a minimum), `rotation` = the bottom→top heading **snapped to 15°**.
+  **Literal connection — no slope-smartness**; a steep result is honest feedback,
+  tuned in the panel after.
+- **Two-click placement** (`GroundInteraction`): first click = the **bottom**
+  (ground-raycast + face-attach through `resolveSupportAt`, so a ramp can start on
+  the ground or on a flat piece top); second click = the **top** — if the ray's
+  ground-projected XZ is over a real surface (tower/gatehouse/wall top, the existing
+  face-attach set), `resolveRampConnection` spans the two; a live preview shows the
+  resulting rise/run while aiming. **Graceful fallback:** a top click on empty
+  ground creates a tunable **default ramp** from the bottom anchor (default
+  rise/run/width/style from constants) — never errors, never gets stuck. Esc
+  cancels; the tool stays active.
+- One pure footprint helper (`rampFootprint`, a run × width oriented rectangle via
+  `rectFootprint`) feeds both the mesh and the hit-test. Selection + gizmo move
+  (base re-resolved through `resolveSupportAt` at the bottom anchor) + rotate (15°)
+  + delete + a param panel (style ramp/stair, rise, run, width, rotation, material).
+- A **ramp is NOT a face-attach target** — its top is a slope, not a flat surface.
+  It can be placed **onto** flat tops, but **nothing face-attaches onto it** and the
+  top-click surface set excludes ramps (`resolveSupportAt` ignores ramps as both a
+  containment and a top surface).
+
 One scoping note still holds: **working-plane-at-arbitrary-height placement is
-deferred** — face-attach covers the stacking these phases need. Next up is
-**1e** (ramp/stair — built last).
+deferred** — the ramp's top click must hit a real surface; empty-air top points are
+a phase 2+ deferral (face-attach covers the stacking these phases need).
 
 - **1a (foundation):** fresh Vite + React + TS repo; Zustand store + schema v1 +
   undo/redo; the 3D scene with the carried-over orthographic iso camera + orbit/zoom
