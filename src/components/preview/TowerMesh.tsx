@@ -7,10 +7,9 @@ import { useStore } from "../../store/store";
 import { groundHeightAt } from "../../geometry/ground";
 import { towerFootprint } from "../../geometry/towerFootprint";
 import { snapHorizontal } from "../../geometry/grid";
-import { materialColor } from "./material";
+import { PATTERN_TILE_METERS } from "../../materials/patterns";
+import { useThreeMaterial } from "../../materials/threeMaterial";
 import { isCleanClick } from "./interaction";
-
-const SELECT_TINT = "#7bb8ee";
 
 function deg2rad(d: number): number {
   return (d * Math.PI) / 180;
@@ -42,8 +41,22 @@ export function TowerMesh({ piece }: TowerMeshProps) {
   const supportY = groundHeightAt(piece.position.x, piece.position.y);
   const baseY = supportY + piece.base;
 
-  const color = materialColor(piece.material);
-  const emissiveIntensity = selected ? 0.35 : hovered ? 0.16 : 0;
+  // Tile a pattern at ~PATTERN_TILE_METERS across the tower's surface so stones
+  // read at a believable size; solids ignore repeat.
+  const around =
+    piece.profile === "round" ? 2 * Math.PI * fp.radius : fp.radius * 2;
+  const repeat: [number, number] = [
+    Math.max(1, Math.round(around / PATTERN_TILE_METERS)),
+    Math.max(1, Math.round(piece.height / PATTERN_TILE_METERS)),
+  ];
+
+  // All rendering flows through the shared MaterialRef→THREE factory, so solids
+  // and procedural patterns work for free; selection/hover is a styling pass.
+  const material = useThreeMaterial(
+    piece.material,
+    { repeat },
+    { selected, hovered },
+  );
 
   const handleOver = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== "select") return;
@@ -77,6 +90,7 @@ export function TowerMesh({ piece }: TowerMeshProps) {
           position={[0, piece.height / 2, 0]}
           castShadow
           receiveShadow
+          material={material}
           onPointerOver={handleOver}
           onPointerOut={handleOut}
           onClick={handleClick}
@@ -86,13 +100,6 @@ export function TowerMesh({ piece }: TowerMeshProps) {
           ) : (
             <boxGeometry args={[fp.radius * 2, piece.height, fp.radius * 2]} />
           )}
-          <meshStandardMaterial
-            color={color}
-            emissive={SELECT_TINT}
-            emissiveIntensity={emissiveIntensity}
-            roughness={0.85}
-            metalness={0}
-          />
         </mesh>
       </group>
 
