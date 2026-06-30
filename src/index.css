@@ -1,0 +1,93 @@
+:root {
+  --bg: #1b1f24;
+  --panel: #262b32;
+  --panel-border: #363d46;
+  --text: #e6e9ed;
+  --text-dim: #9aa3ad;
+  --accent: #5b9dd9;
+  --accent-strong: #7bb8ee;
+
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 1px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app__header {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.app__header h1 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.app__main {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+/* Error boundary card */
+.error-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+}
+
+.error-card__inner {
+  max-width: 480px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 24px;
+}
+
+.error-card__detail {
+  white-space: pre-wrap;
+  background: #14171b;
+  border-radius: 6px;
+  padding: 10px;
+  color: #ff9b9b;
+  font-size: 12px;
+  overflow: auto;
+}
