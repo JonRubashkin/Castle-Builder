@@ -6,6 +6,7 @@ import type { Tower } from "../../store/schema";
 import { useStore } from "../../store/store";
 import { groundHeightAt } from "../../geometry/ground";
 import { towerFootprint } from "../../geometry/towerFootprint";
+import { buildTower } from "../../geometry/towerBuilder";
 import { snapHorizontal } from "../../geometry/grid";
 import { PATTERN_TILE_METERS } from "../../materials/patterns";
 import { useThreeMaterial } from "../../materials/threeMaterial";
@@ -58,6 +59,10 @@ export function TowerMesh({ piece }: TowerMeshProps) {
     { selected, hovered },
   );
 
+  // The pure builder is the single source of the tower's geometry parts (shaft
+  // + any crenellation teeth). The renderer just maps each part to a mesh.
+  const parts = buildTower(piece);
+
   const handleOver = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== "select") return;
     e.stopPropagation();
@@ -86,21 +91,32 @@ export function TowerMesh({ piece }: TowerMeshProps) {
         position={[piece.position.x, baseY, piece.position.y]}
         rotation={[0, -deg2rad(piece.rotation), 0]}
       >
-        <mesh
-          position={[0, piece.height / 2, 0]}
-          castShadow
-          receiveShadow
-          material={material}
+        {/* Pointer handlers on the inner group catch hits on any part (shaft or
+            a merlon), so the whole tower picks as one piece. */}
+        <group
           onPointerOver={handleOver}
           onPointerOut={handleOut}
           onClick={handleClick}
         >
-          {piece.profile === "round" ? (
-            <cylinderGeometry args={[fp.radius, fp.radius, piece.height, 48]} />
-          ) : (
-            <boxGeometry args={[fp.radius * 2, piece.height, fp.radius * 2]} />
-          )}
-        </mesh>
+          {parts.map((part, i) => (
+            <mesh
+              key={i}
+              position={[part.position.x, part.position.y, part.position.z]}
+              rotation={part.shape === "box" ? [0, part.rotationY, 0] : undefined}
+              castShadow
+              receiveShadow
+              material={material}
+            >
+              {part.shape === "cylinder" ? (
+                <cylinderGeometry
+                  args={[part.radius, part.radius, part.height, part.radialSegments]}
+                />
+              ) : (
+                <boxGeometry args={[part.size.x, part.size.y, part.size.z]} />
+              )}
+            </mesh>
+          ))}
+        </group>
       </group>
 
       {showGizmo && (

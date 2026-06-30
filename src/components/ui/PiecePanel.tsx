@@ -181,6 +181,28 @@ export function PiecePanel() {
         onCommit={(v) => updatePiece(tower.id, { height: v })}
       />
 
+      <label className="panel__field panel__field--check">
+        <span>Crenellated</span>
+        <input
+          type="checkbox"
+          aria-label="Crenellated"
+          checked={tower.crenellated}
+          onChange={(e) =>
+            updatePiece(tower.id, { crenellated: e.target.checked })
+          }
+        />
+      </label>
+
+      {tower.crenellated && (
+        <NumberField
+          label="Merlon size"
+          value={tower.merlonSize}
+          min={0.1}
+          step={0.1}
+          onCommit={(v) => updatePiece(tower.id, { merlonSize: v })}
+        />
+      )}
+
       <MaterialControl
         material={tower.material}
         onChange={(m) => updatePiece(tower.id, { material: m })}

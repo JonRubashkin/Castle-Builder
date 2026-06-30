@@ -154,6 +154,12 @@ button:disabled {
   cursor: pointer;
 }
 
+.panel__field--check input[type="checkbox"] {
+  width: auto;
+  justify-self: end;
+  cursor: pointer;
+}
+
 .panel__delete {
   margin-top: 4px;
   border-color: #6e3a3a;
