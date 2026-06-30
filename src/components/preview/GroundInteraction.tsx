@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useStore } from "../../store/store";
 import { snapHorizontalVec2 } from "../../geometry/grid";
+import { snapEndpoint } from "../../geometry/snapEndpoint";
 import { resolveSupportAt } from "../../geometry/support";
 import { groundHeightAt } from "../../geometry/ground";
 import {
@@ -23,6 +24,7 @@ import { GateGhost } from "./GateGhost";
 import { WallGhost } from "./WallGhost";
 import { MoatRingGhost, MoatSegmentGhost } from "./MoatGhost";
 import { RampGhost } from "./RampGhost";
+import { SnapRing } from "./SnapRing";
 
 const PLANE_SIZE = 400;
 
@@ -116,6 +118,9 @@ export function GroundInteraction() {
   // the committed bottom anchor and the live top cursor.
   const [rampBottom, setRampBottom] = useState<Vec2 | null>(null);
   const [rampCursor, setRampCursor] = useState<Vec2 | null>(null);
+  // The piece anchor the live wall endpoint is currently snapping to (for the
+  // snap-ring affordance), or null when the endpoint is on the free grid.
+  const [snapAnchor, setSnapAnchor] = useState<Vec2 | null>(null);
 
   const anchorTool: AnchorTool | null = (ANCHOR_TOOLS as readonly string[]).includes(
     tool,
@@ -137,6 +142,11 @@ export function GroundInteraction() {
     }
   }, [isTwoPoint]);
 
+  // The snap ring is a wall-tool affordance only; clear it off the wall tool.
+  useEffect(() => {
+    if (tool !== "wallRun") setSnapAnchor(null);
+  }, [tool]);
+
   // Reset the ramp draft when the ramp tool isn't active.
   useEffect(() => {
     if (!isRamp) {
@@ -155,6 +165,7 @@ export function GroundInteraction() {
         setDraftCursor(null);
         setRampBottom(null);
         setRampCursor(null);
+        setSnapAnchor(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -173,7 +184,17 @@ export function GroundInteraction() {
       return;
     }
     if (ghost) setGhost(null);
-    const cursor = snapHorizontalVec2({ x: e.point.x, y: e.point.z });
+    const raw = { x: e.point.x, y: e.point.z };
+    if (tool === "wallRun") {
+      // The wall endpoint snaps to a nearby piece anchor (else the grid); the
+      // snap ring shows the live anchor while snapping (placement path).
+      const snap = snapEndpoint(raw, pieces);
+      setDraftCursor(snap.point);
+      setSnapAnchor(snap.snapped ? snap.point : null);
+      return;
+    }
+    if (snapAnchor) setSnapAnchor(null);
+    const cursor = snapHorizontalVec2(raw);
     if (isRamp) {
       setRampCursor(cursor);
     } else if (isTwoPoint) {
@@ -185,6 +206,7 @@ export function GroundInteraction() {
 
   const handleOut = () => {
     if (ghost) setGhost(null);
+    if (snapAnchor) setSnapAnchor(null);
   };
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
@@ -234,26 +256,30 @@ export function GroundInteraction() {
     }
 
     if (isTwoPoint) {
+      // A wall endpoint snaps to a nearby piece anchor (else the grid); a segment
+      // moat uses the plain grid point (water is ground-only, no anchor snap).
+      const endpoint = tool === "wallRun" ? snapEndpoint(point, pieces).point : point;
       if (!draftStart) {
-        setDraftStart(point);
-        setDraftCursor(point);
+        setDraftStart(endpoint);
+        setDraftCursor(endpoint);
         return;
       }
       // Second click: ignore a zero-length draft; otherwise place a single piece
       // and stay active for the next one (no chaining this phase).
-      if (point.x === draftStart.x && point.y === draftStart.y) return;
+      if (endpoint.x === draftStart.x && endpoint.y === draftStart.y) return;
       if (tool === "wallRun") {
         // The wall seats at one base, resolved at the START anchor (face-attach).
         const support = resolveSupportAt(draftStart, pieces);
         useStore
           .getState()
-          .addWallRun({ position: draftStart, end: point, base: support.base });
+          .addWallRun({ position: draftStart, end: endpoint, base: support.base });
       } else {
         // Segment moat: ground-only (the store resolves the base from the ground).
-        useStore.getState().addMoatSegment({ position: draftStart, end: point });
+        useStore.getState().addMoatSegment({ position: draftStart, end: endpoint });
       }
       setDraftStart(null);
       setDraftCursor(null);
+      setSnapAnchor(null);
       return;
     }
 
@@ -311,6 +337,9 @@ export function GroundInteraction() {
           onSurface={wallSupport.onSurface}
         />
       )}
+      {/* Snap-active affordance: a ring at the anchor the live wall endpoint is
+          snapping to (convenience only — no attachment relationship is created). */}
+      {tool === "wallRun" && snapAnchor && <SnapRing at={snapAnchor} />}
       {isMoatRing && draftCursor && <MoatRingGhost position={draftCursor} />}
       {tool === "moat" && moatShape === "segment" && draftStart && draftCursor && (
         <MoatSegmentGhost start={draftStart} end={draftCursor} />

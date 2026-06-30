@@ -291,6 +291,24 @@ builder is unit-tested.
   Per-design `schemaVersion` is validated on open; a future unknown version is
   refused rather than corrupting data. Surface a calm browser-storage disclosure in
   the UI.
+- **New Castle (the reset).** A top-bar **New Castle** button (`NewCastleButton`)
+  clears the design and starts fresh — but **only after explicit confirmation**
+  (a dismissable dialog: Cancel / Esc / backdrop change nothing; only "Start new"
+  resets). The reset is **destructive and irreversible** once autosave overwrites,
+  so confirmation is **mandatory — never reset without it**. It goes through ONE
+  shared atomic store action, **`newDesign`**, which swaps in a fresh empty
+  `Design` (schemaVersion 1, empty pieces, default name) AND resets every
+  doc-dependent transient (selection, undo/redo history, the pending-interaction
+  snapshot) so **no reference to a now-gone piece survives** — the prior project's
+  hard-won lesson (a reset that swaps the doc but leaves dangling transient
+  references white-screens). It also **bumps a monotonic `bootNonce`**; the editor
+  tree is keyed on it (`<Editor key={bootNonce} />`) so the reset **fully remounts
+  a clean tree** rather than mutating the live one in place, which additionally
+  clears component-local in-progress placement/drag state. The doc-lifecycle hooks
+  (`useAutosave`, shortcuts, the e2e accessor) live in `App` **outside** the keyed
+  subtree on purpose — remounting `useAutosave` would re-run its load-from-storage
+  and could race the old design back in. The fresh empty design persists via the
+  existing autosave path (a later reload resumes the empty design).
 
 ## Safety nets & known-bug lessons (carried over)
 
@@ -356,7 +374,11 @@ order; do not build ahead.
 vocabulary exists. You can place / select / move / rotate / edit / delete
 towers, gatehouses, wall runs, gates, moats, and ramps/stairs on the flat grid,
 with undo/redo, autosave, Export/Import JSON (round-tripping all six kinds), and
-CI green. **1b added:** the
+CI green. **Post-1e refinements (still phase 1, not new scope):** the ramp aims
+**exactly** at its connection (no 15° snap on the ramp heading; see 1e); wall
+endpoints **snap to nearby tower/gatehouse anchors** (convenience only, no
+attachment; see 1c); and a top-bar **New Castle** reset clears to a fresh empty
+design after confirmation (see "State, undo, persistence"). **1b added:** the
 material system (MaterialRef + runtime procedural patterns
 stone/brick/thatch/opaque-water + `materialRefToThreeMaterial` in
 `src/materials/`) wired through the piece meshes with a panel Fill control;
@@ -393,6 +415,19 @@ placement path and the gizmo-move path resolving base through the *same* helper.
 - **Wall↔tower junctions overlap; there is no attachment relationship** (a wall
   whose end lands against a tower simply overlaps it — deliberate, per the
   geometry rules).
+- **Endpoint snapping** (`src/geometry/snapEndpoint.ts`: `snapEndpoint` +
+  `WALL_SNAP_TOLERANCE` ≈ 0.5 m): a wall endpoint **snaps to the nearest piece
+  anchor** (tower / gatehouse **center**) within tolerance — nearest wins — else
+  it falls back to the 0.1 m grid. It is **one shared pure helper** called by
+  BOTH the placement path (each wall click, in `GroundInteraction`) and the
+  endpoint-handle editing path (the live drag, in `WallRunMesh`) — never two
+  copies. A subtle **snap ring** (`SnapRing`, on its own `SNAP_RING_LAYER`)
+  shows at the anchor while snapping. This is **CONVENIENCE ONLY — it introduces
+  NO attachment relationship**: the wall stays two plain stored points, nothing
+  rides along if the anchor later moves, and the wall↔tower **overlap** is
+  unchanged (the tower still hides the seam; snapping just lands the endpoint on
+  the tower's center cleanly). The panel's endpoint number fields stay the
+  precise/keyboard path (plain grid, no anchor snap).
 
 **1d added the openings & water — the gate and the moat:**
 - The **gate** is a freestanding **timber portcullis grid**
@@ -444,7 +479,9 @@ placement path and the gizmo-move path resolving base through the *same* helper.
   `resolveSupportAt`) and a top hit (+ its surface height) and returns
   `{ position, base, rotation, rise, run }`: `base` = the bottom support height,
   `rise` = top − bottom world height (clamped ≥ 0), `run` = the XZ distance (floored
-  to a minimum), `rotation` = the bottom→top heading **snapped to 15°**.
+  to a minimum), `rotation` = the **EXACT** bottom→top heading (`rampRotationToward`,
+  normalized to [0, 360) with **NO 15° snap**). The ramp is the one piece that aims
+  *precisely* at its connection — every other piece keeps the 15° rotation grid.
   **Literal connection — no slope-smartness**; a steep result is honest feedback,
   tuned in the panel after.
 - **Two-click placement** (`GroundInteraction`): first click = the **bottom**
@@ -458,8 +495,11 @@ placement path and the gizmo-move path resolving base through the *same* helper.
   cancels; the tool stays active.
 - One pure footprint helper (`rampFootprint`, a run × width oriented rectangle via
   `rectFootprint`) feeds both the mesh and the hit-test. Selection + gizmo move
-  (base re-resolved through `resolveSupportAt` at the bottom anchor) + rotate (15°)
-  + delete + a param panel (style ramp/stair, rise, run, width, rotation, material).
+  (base re-resolved through `resolveSupportAt` at the bottom anchor) + **free
+  rotation** (the ramp's panel rotation field is un-snapped — 1° steps, normalized
+  to [0, 360) — consistent with the precise two-click aim; all other pieces stay on
+  the 15° grid) + delete + a param panel (style ramp/stair, rise, run, width,
+  rotation, material).
 - A **ramp is NOT a face-attach target** — its top is a slope, not a flat surface.
   It can be placed **onto** flat tops, but **nothing face-attaches onto it** and the
   top-click surface set excludes ramps (`resolveSupportAt` ignores ramps as both a

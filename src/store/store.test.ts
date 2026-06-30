@@ -211,3 +211,45 @@ describe("store: a gizmo move resolves base through the same support rule", () =
     expect(tower(id).base).toBe(0);
   });
 });
+
+describe("store: newDesign (the New Castle reset)", () => {
+  beforeEach(reset);
+
+  it("swaps in a fresh empty design and clears all doc transients", () => {
+    // Build up some state: pieces, a selection, undo history, a pending snapshot.
+    const id = useStore.getState().addTower(at(0, 0));
+    useStore.getState().addTower(at(20, 20));
+    useStore.getState().selectPiece(id);
+    useStore.getState().beginTransient(); // leaves a pending snapshot
+
+    expect(useStore.getState().design.pieces.length).toBe(2);
+    expect(useStore.getState().selectedId).toBe(id);
+    expect(useStore.getState().history.past.length).toBeGreaterThan(0);
+    expect(useStore.getState().pendingSnapshot).not.toBeNull();
+
+    useStore.getState().newDesign();
+
+    const s = useStore.getState();
+    expect(s.design).toEqual(createEmptyDesign());
+    expect(s.design.pieces).toEqual([]);
+    expect(s.design.schemaVersion).toBe(1);
+    expect(s.selectedId).toBeNull(); // no surviving reference to a gone piece
+    expect(s.history.past).toEqual([]);
+    expect(s.history.future).toEqual([]);
+    expect(s.pendingSnapshot).toBeNull();
+  });
+
+  it("bumps bootNonce so the editor tree remounts clean", () => {
+    const before = useStore.getState().bootNonce;
+    useStore.getState().newDesign();
+    expect(useStore.getState().bootNonce).toBe(before + 1);
+  });
+
+  it("clears redo history too (a fresh start, not an undoable step)", () => {
+    useStore.getState().addTower(at(0, 0));
+    useStore.getState().undo(); // pushes onto future
+    expect(useStore.getState().history.future.length).toBeGreaterThan(0);
+    useStore.getState().newDesign();
+    expect(useStore.getState().history.future).toEqual([]);
+  });
+});

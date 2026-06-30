@@ -114,7 +114,7 @@ export function buildRamp(d: RampDims): RampPart[] {
 // steep result is honest feedback. Degenerate cases are clamped, never rejected.
 // ---------------------------------------------------------------------------
 
-import { snapHorizontalVec2, snapRotation } from "./grid";
+import { snapHorizontalVec2 } from "./grid";
 
 export interface RampConnectionBottom {
   point: Vec2; // world XZ of the bottom click (grid-snapped by the caller or here)
@@ -136,16 +136,22 @@ export interface RampConnection {
 }
 
 /**
- * Heading (degrees about world Y, SNAPPED to 15°) so the ramp's LOCAL +Z (its
- * climb direction) points from `from` toward `to` once rendered with rotation
+ * Heading (degrees about world Y, [0, 360)) so the ramp's LOCAL +Z (its climb
+ * direction) points from `from` toward `to` once rendered with rotation
  * [0, -deg2rad(rot), 0]. Derivation: local +Z maps to world (−sin rot, cos rot);
  * matching that to the from→to direction gives rot = atan2(−dx, dz). Shared by the
  * connection helper and the empty-top fallback so both aim the ramp identically.
+ *
+ * Unlike every other piece, the ramp heading is NOT snapped to the 15° grid: a
+ * ramp's whole job is to connect two points, so it aims EXACTLY at the
+ * connection. (Other pieces keep `snapRotation`'s 15° steps via the panel.)
  */
 export function rampRotationToward(from: Vec2, to: Vec2): number {
   const dx = to.x - from.x;
   const dz = to.y - from.y;
-  return snapRotation((Math.atan2(-dx, dz) * 180) / Math.PI);
+  const deg = (Math.atan2(-dx, dz) * 180) / Math.PI;
+  const normalized = ((deg % 360) + 360) % 360;
+  return normalized === 0 ? 0 : normalized;
 }
 
 export function resolveRampConnection(
@@ -159,8 +165,8 @@ export function resolveRampConnection(
   const rise = Math.max(0, top.height - bottom.height);
   const dist = Math.hypot(top.point.x - bottom.point.x, top.point.y - bottom.point.y);
   const run = Math.max(MIN_RAMP_RUN, dist);
-  // rotation snapped to 15° (consistent with other pieces) — the ramp then points
-  // APPROXIMATELY at the top; the panel tunes after. Heading uses the raw clicks.
+  // rotation is the EXACT bottom→top heading (no 15° snap) — the ramp aims
+  // precisely at the top; the panel tunes after. Heading uses the raw clicks.
   const rotation = rampRotationToward(bottom.point, top.point);
   return { position, base: bottom.base, rotation, rise, run };
 }

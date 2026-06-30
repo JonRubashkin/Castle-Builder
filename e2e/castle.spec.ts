@@ -288,6 +288,53 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect(w.end).toEqual({ x: 4, y: 6 }); // end moved
   });
 
+  test("wall endpoint snaps onto a nearby tower anchor", async ({ page }) => {
+    await openApp(page);
+
+    // Place a tower at the canvas center, then read its (grid-snapped) anchor.
+    await page.getByRole("button", { name: "Tower" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    const towerAnchor = (await pieces(page))[0].position;
+
+    // Draw a wall whose START click lands over the tower (within snap tolerance):
+    // the stored start endpoint should latch onto the tower anchor exactly.
+    await page.getByRole("button", { name: "Wall" }).click();
+    await clickCanvasCenter(page); // start → snaps to the tower anchor
+    await clickCanvasAt(page, 520, 220); // end → somewhere far away
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const wall = (await pieces(page)).find((p) => p.kind === "wallRun");
+    expect(wall).toBeTruthy();
+    expect(wall.position).toEqual(towerAnchor); // endpoint == the tower anchor
+  });
+
+  test("wall endpoints far from any piece grid-snap (no anchor snap)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // A tower at center exists, but the wall is drawn far away from it.
+    await page.getByRole("button", { name: "Tower" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    const towerAnchor = (await pieces(page))[0].position;
+
+    await page.getByRole("button", { name: "Wall" }).click();
+    await clickCanvasAt(page, 250, 320);
+    await clickCanvasAt(page, 520, 220);
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const wall = (await pieces(page)).find((p) => p.kind === "wallRun");
+    expect(wall).toBeTruthy();
+    // Both endpoints land on the 0.1 m grid (not latched onto the far tower).
+    for (const v of [wall.position.x, wall.position.y, wall.end.x, wall.end.y]) {
+      expect(Math.abs(v * 10 - Math.round(v * 10))).toBeLessThan(1e-6);
+    }
+    expect(wall.position).not.toEqual(towerAnchor);
+    expect(wall.end).not.toEqual(towerAnchor);
+  });
+
   test("place a gate, edit a param, rotate (15° steps), and delete it", async ({
     page,
   }) => {
@@ -656,5 +703,59 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect(upper.base).toBeCloseTo(lower.base + lower.height, 6);
     // And the first tower stayed on the ground.
     expect(lower.base).toBe(0);
+  });
+
+  test("New Castle: Cancel keeps the design; confirm clears it and survives reload", async ({
+    page,
+  }) => {
+    const undoPastLength = () =>
+      page.evaluate(() => (window as any).__CASTLE_E2E__.getState().history.past.length);
+
+    await openApp(page);
+
+    // Build up a small design (towers → non-empty pieces + undo history).
+    await page.getByRole("button", { name: "Tower" }).click();
+    await clickCanvasAt(page, 300, 300);
+    await clickCanvasAt(page, 500, 250);
+    await expect.poll(() => pieceCount(page)).toBe(2);
+    // Select a piece so we can confirm the reset clears the selection too.
+    await page.getByRole("button", { name: "Select" }).click();
+    await clickCanvasAt(page, 300, 300);
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+    expect(await undoPastLength()).toBeGreaterThan(0);
+
+    // Open the dialog and CANCEL → nothing changes.
+    await page.getByRole("button", { name: "New Castle" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    expect(await pieceCount(page)).toBe(2); // design intact
+
+    // Open again and CONFIRM → fresh empty design, transients + history cleared.
+    await page.getByRole("button", { name: "New Castle" }).click();
+    await page.getByRole("button", { name: "Start new" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+    expect(await selectedId(page)).toBeNull();
+    expect(await undoPastLength()).toBe(0);
+
+    // The fresh design persists: a reload resumes the empty design (not the old).
+    await page.waitForTimeout(500); // let the debounced autosave flush
+    await page.reload();
+    await page.waitForFunction(() => Boolean((window as any).__CASTLE_E2E__));
+    await expect.poll(() => pieceCount(page)).toBe(0);
+  });
+
+  test("New Castle: Esc dismisses the dialog with no change", async ({ page }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Tower" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    await page.getByRole("button", { name: "New Castle" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeHidden();
+    expect(await pieceCount(page)).toBe(1); // unchanged
   });
 });
