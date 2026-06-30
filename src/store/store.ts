@@ -10,6 +10,7 @@ import {
   DEFAULT_MOAT_INNER_RADIUS,
   DEFAULT_MOAT_OUTER_RADIUS,
   DEFAULT_MOAT_WIDTH,
+  DEFAULT_RAMP_WIDTH,
   DEFAULT_STONE_MATERIAL,
   DEFAULT_TIMBER_MATERIAL,
   DEFAULT_TOWER_HEIGHT,
@@ -22,6 +23,7 @@ import {
   type Gatehouse,
   type Moat,
   type Piece,
+  type Ramp,
   type Tower,
   type Vec2,
   type WallRun,
@@ -32,7 +34,14 @@ import { snapHorizontalVec2 } from "../geometry/grid";
 
 export const HISTORY_CAP = 100;
 
-export type Tool = "select" | "tower" | "gatehouse" | "wallRun" | "gate" | "moat";
+export type Tool =
+  | "select"
+  | "tower"
+  | "gatehouse"
+  | "wallRun"
+  | "gate"
+  | "moat"
+  | "ramp";
 
 /** The moat tool's sub-mode: a ring (annulus) or a straight segment. */
 export type MoatShape = "ring" | "segment";
@@ -77,6 +86,16 @@ export interface StoreState {
   addGatehouse: (input: { position: Vec2; base: number }) => string;
   addWallRun: (input: { position: Vec2; end: Vec2; base: number }) => string;
   addGate: (input: { position: Vec2; base: number }) => string;
+  // The ramp connects two points: the caller computes position/base/rotation/
+  // rise/run (via resolveRampConnection) or falls back to defaults; width/style/
+  // material default here and stay editable in the panel.
+  addRamp: (input: {
+    position: Vec2;
+    base: number;
+    rotation: number;
+    rise: number;
+    run: number;
+  }) => string;
   // The moat is ground-only; the caller passes just the footprint, and the base
   // is resolved from the ground rule (groundHeightAt), never face-attach.
   addMoatRing: (input: { position: Vec2 }) => string;
@@ -229,6 +248,27 @@ export const useStore = create<StoreState>((set, get) => {
       };
       commit((design) => {
         design.pieces.push(gate);
+        return design;
+      });
+      return id;
+    },
+
+    addRamp: ({ position, base, rotation, rise, run }) => {
+      const id = nextId();
+      const ramp: Ramp = {
+        id,
+        kind: "ramp",
+        position: { ...position },
+        base,
+        rotation,
+        rise,
+        run,
+        width: DEFAULT_RAMP_WIDTH,
+        style: "ramp",
+        material: DEFAULT_STONE_MATERIAL,
+      };
+      commit((design) => {
+        design.pieces.push(ramp);
         return design;
       });
       return id;

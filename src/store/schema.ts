@@ -115,6 +115,13 @@ export const DEFAULT_GATEHOUSE_HEIGHT = 6;
 export const DEFAULT_GATE_WIDTH = 2.4;
 export const DEFAULT_GATE_HEIGHT = 3.2;
 
+// Ramp / stair. Used for the empty-top fallback (a default ramp from the bottom
+// anchor that the user then tunes) and the connection's default width/style; the
+// rise/run of a real connection are COMPUTED to span the two clicked points.
+export const DEFAULT_RAMP_RISE = 4;
+export const DEFAULT_RAMP_RUN = 6;
+export const DEFAULT_RAMP_WIDTH = 2;
+
 // Moat (opaque water). Ring: outer/inner radii about the anchor. Segment: a
 // straight strip of `width`. These are starting values, tuned for looks.
 export const DEFAULT_MOAT_OUTER_RADIUS = 9;

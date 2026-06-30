@@ -4,18 +4,21 @@ A browser-based, **3D-first** castle builder. You place semantic castle pieces
 directly in a 3D scene on a grid, then tweak each piece's parameters. Everything
 runs client-side — no backend.
 
-> **Phases 1a–1d** are implemented: place / select / move / delete **towers,
-> gatehouses, wall runs, gates, and moats** on a flat ground grid, with undo/redo
-> and autosave, **procedural materials** (solid + stone / brick / thatch /
-> opaque-water patterns), **crenellations** (one shared merlon helper across the
-> masses), and **face-attach** for both placement and gizmo moves (seat a piece on
-> top of another). Wall runs draw with **two clicks** (live preview + length
-> label), move whole-wall via a gizmo, and reshape per-endpoint via drag handles.
-> The **gate** is a freestanding timber portcullis (it positions in an archway /
-> against a wall — it does not cut a real opening). The **moat** is **opaque
-> water** (ring or segment), ground-only, on its own stacking layer. Ramps/stairs
-> come in a later phase (see `CLAUDE.md` → "Phase plan"). `CLAUDE.md` is the source
-> of truth for conventions, the data model, and scope.
+> **Phase 1 is complete.** The full kit-of-parts vocabulary exists: place /
+> select / move / rotate / edit / delete **towers, gatehouses, wall runs, gates,
+> moats, and ramps/stairs** on a flat ground grid, with undo/redo and autosave,
+> **procedural materials** (solid + stone / brick / thatch / opaque-water
+> patterns), **crenellations** (one shared merlon helper across the masses), and
+> **face-attach** for both placement and gizmo moves (seat a piece on top of
+> another). Wall runs draw with **two clicks** (live preview + length label), move
+> whole-wall via a gizmo, and reshape per-endpoint via drag handles. The **gate**
+> is a freestanding timber portcullis (it positions in an archway / against a wall
+> — it does not cut a real opening). The **moat** is **opaque water** (ring or
+> segment), ground-only, on its own stacking layer. The **ramp/stair** is the only
+> piece placed by **connecting two heights** — click a bottom, then a top surface,
+> and it computes its own params to literally span them (with a graceful default
+> when the top click misses a surface). `CLAUDE.md` is the source of truth for
+> conventions, the data model, and scope.
 
 ## Tech stack
 
@@ -48,11 +51,12 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Wall tool** | **Two clicks**: click a start point, then an end point — a live preview wall with a **length label** follows the cursor between them. Single segment per draw (the tool stays active for the next wall). Endpoints snap to 0.1 m; a zero-length wall is ignored; `Esc` cancels the in-progress wall. |
 | **Gate tool** | Click the ground to place a **freestanding timber gate** (a portcullis lattice) at the grid-snapped cursor; same ghost / face-attach behavior as the tower. It's a standalone piece — position it in a gatehouse archway or against a wall; it does **not** cut a real opening (no CSG in phase 1). Rotate it (15° steps in the panel) to face across the archway. |
 | **Moat tool** | Places **opaque water**. Pick a **sub-mode** in the panel (shown when the Moat tool is active): **Ring** (default) is a single click — an annulus with editable inner/outer radii; **Segment** is **two clicks** (start, then end) — a straight strip with an editable width. A moat is **ground-only** (it never face-attaches) and sits on its own water layer so it can't z-fight the ground. `Esc` cancels an in-progress segment. |
-| **Face-attach** | With the tower / gatehouse / wall / **gate** tool, click over an existing piece's footprint: the new piece seats on that piece's **top** (its stored base = the lower piece's top), instead of on the ground. A wall seats at its **start** anchor's support height. (The moat is exempt — it always seats on the ground.) |
+| **Ramp tool** | A **connection**, placed with **two clicks**: click a **bottom** (on the ground, or on a flat piece top via face-attach), then a **top surface** (a tower / gatehouse / wall top). The ramp computes its own `rise` / `run` / heading to **literally span** the two points — a live preview shows the resulting rise/run while you aim. The connection is literal (no slope-smartness), so a steep result is honest feedback; tune it in the panel afterward. If the **top click misses a real surface** (empty ground), it falls back to a **tunable default ramp** from the bottom anchor instead of getting stuck. `Esc` cancels. A ramp can sit **on** flat tops, but **nothing face-attaches onto a ramp** (its top is a slope). |
+| **Face-attach** | With the tower / gatehouse / wall / **gate** / **ramp** tool, place over an existing piece's footprint: the new piece (or a ramp's **bottom** anchor) seats on that piece's **top** (its stored base = the lower piece's top), instead of on the ground. A wall seats at its **start** anchor's support height. (The moat is exempt — it always seats on the ground; and a ramp is never a face-attach **target**.) |
 | **Select tool** | Click a piece to select it; click empty ground to deselect. |
 | Move a selected piece | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**. For a wall, the gizmo moves the **whole wall** (both endpoints together). |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (grid-snapped, one undo step). Start/End coordinates are also editable as number fields in the panel. |
-| Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width). Each piece carries a **material** (solid color or a stone / brick / thatch / water pattern). |
+| Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, rotation). Each piece carries a **material** (solid color or a stone / brick / thatch / water pattern). |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
 | Export / Import | Buttons in the bottom bar — save or load a design as JSON. |
@@ -77,9 +81,11 @@ the XZ plane. Horizontal grid snap is **0.1 m**, vertical **0.5 m**, rotation
 src/
   geometry/            pure, unit-tested math (grid snapping, ground height,
                        the shared crenellation helper, per-piece builders +
-                       footprints for tower/gatehouse/wall/gate/moat, the shared
-                       oriented-rectangle footprint, the ring footprint, support/
-                       face-attach resolution, iso camera) — no React, no store
+                       footprints for tower/gatehouse/wall/gate/moat/ramp, the
+                       shared oriented-rectangle footprint, the ring footprint,
+                       the ramp/stair builder + two-point connection helper,
+                       support/face-attach resolution, iso camera) — no React,
+                       no store
   materials/           MaterialRef → THREE factory + procedural pattern textures
                        (stone/brick/thatch/opaque-water), generated at runtime
   store/               Zustand store, schema v1, undo/redo, ?e2e=1 test accessor
@@ -103,10 +109,15 @@ Build command `npm run build`, output `dist/`.
   helper, the gatehouse + wall-run builders and footprints (dimensions, length,
   orientation, oriented-rectangle hit-test), the **gate** builder + footprint
   (portcullis bar layout, oriented hit-test), the **moat** ring + segment builders
-  and footprints (ring inside/outside hit-test, segment oriented hit-test),
-  support/face-attach resolution across piece kinds (including the wall's
-  start-anchor base rule, the gate face-attaching onto a piece, and the moat being
-  ground-only / never a stackable surface), the wall endpoint/whole-wall move
+  and footprints (ring inside/outside hit-test, segment oriented hit-test), the
+  **ramp/stair** builder (ramp slab extent, stair step count vs rise, actual riser
+  ≈ target, degenerate inputs) + its two-point **connection** helper (rise/run/
+  rotation from two points, clamps for top-below-bottom and zero distance) +
+  footprint (run × width oriented hit-test), support/face-attach resolution across
+  piece kinds (including the wall's start-anchor base rule, the gate face-attaching
+  onto a piece, the moat being ground-only / never a stackable surface, and the
+  **ramp never being a face-attach target** while its bottom still seats on tops),
+  the wall endpoint/whole-wall move
   actions, the iso camera, store actions + undo/redo (one snapshot per committed
   op, with the 100-entry cap and eviction), the procedural-material logic (opaque
   output, pattern ids), and schema validation.
@@ -116,7 +127,11 @@ Build command `npm run build`, output `dist/`.
   clicks, selecting + deleting a wall, dragging a wall endpoint, placing a **gate**
   (edit/rotate/delete + face-attach onto a wall top), placing a **ring moat**
   (edit radii, delete), placing a **segment moat** (two clicks, edit width,
-  delete), and the moat staying ground-only on a gizmo move. They read app state
+  delete), the moat staying ground-only on a gizmo move, the **ramp** two-click
+  connect (ground → a tower top, asserting the stored rise ≈ the tower height),
+  the ramp's **empty-top fallback** default ramp, toggling ramp/stair + editing +
+  deleting a ramp, and a **mixed castle of all six kinds persisting across a
+  reload**. They read app state
   through a test-only accessor exposed at `window.__CASTLE_E2E__` when the page is
   opened with `?e2e=1`, and never assert on the WebGL canvas pixels.
 - CI (GitHub Actions) runs two guard scripts, the build, Vitest, and Playwright
