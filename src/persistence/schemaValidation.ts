@@ -4,6 +4,7 @@
 
 import { SCHEMA_VERSION, type Design, type Piece, type Vec2 } from "../store/schema";
 import { PATTERN_IDS } from "../materials/patterns";
+import { migrateDesign } from "./migrations";
 
 // The importer's pattern allowlist DERIVES from the runtime id list, so adding a
 // new PatternId never causes a previously-saved/exported design to be rejected.
@@ -34,7 +35,42 @@ const KNOWN_KINDS = new Set([
   "gate",
   "ramp",
   "moat",
+  "flag",
 ]);
+
+// A flag piece embeds a full FlagDesign (the 2Fa layer stack). Validate its shape
+// structurally — a plain object with a numeric aspect and an array of layers, each
+// a known layer kind — so a corrupt document is rejected while a well-formed flag
+// (including future additive symbol ids) round-trips. Deep per-layer validation is
+// out of scope for 2Fb (the renderer owns layer semantics).
+const FLAG_LAYER_KINDS = new Set(["field", "stripes", "charge"]);
+
+function validateFlagDesign(value: unknown, index: number): void {
+  if (!isPlainObject(value)) {
+    throw new DesignValidationError(`pieces[${index}].design must be an object`);
+  }
+  if (typeof value.aspect !== "number") {
+    throw new DesignValidationError(
+      `pieces[${index}].design.aspect must be a number`,
+    );
+  }
+  if (!Array.isArray(value.layers)) {
+    throw new DesignValidationError(
+      `pieces[${index}].design.layers must be an array`,
+    );
+  }
+  value.layers.forEach((layer, li) => {
+    if (
+      !isPlainObject(layer) ||
+      typeof layer.kind !== "string" ||
+      !FLAG_LAYER_KINDS.has(layer.kind)
+    ) {
+      throw new DesignValidationError(
+        `pieces[${index}].design.layers[${li}].kind is unknown`,
+      );
+    }
+  });
+}
 
 function validateMaterial(value: unknown, index: number): void {
   // Material is optional in the raw document (older saves may predate it); when
@@ -90,6 +126,16 @@ function validatePiece(value: unknown, index: number): Piece {
     throw new DesignValidationError(`pieces[${index}].rotation must be a number`);
   }
   validateMaterial(value.material, index);
+  // Flag-specific fields: the embedded FlagDesign plus the pole/cloth dimensions.
+  if (value.kind === "flag") {
+    if (typeof value.poleHeight !== "number") {
+      throw new DesignValidationError(`pieces[${index}].poleHeight must be a number`);
+    }
+    if (typeof value.clothWidth !== "number") {
+      throw new DesignValidationError(`pieces[${index}].clothWidth must be a number`);
+    }
+    validateFlagDesign(value.design, index);
+  }
   return value as unknown as Piece;
 }
 
@@ -113,17 +159,22 @@ export function validateDesign(data: unknown): Design {
       true,
     );
   }
-  if (version < SCHEMA_VERSION) {
+  if (version < 1) {
     throw new DesignValidationError(`Unsupported schema version v${version}`);
   }
-  if (typeof data.name !== "string") {
+  // Bring an older (but known) document up to the current schema before validating
+  // its structure — a pure transform on the raw doc (migrations.ts). v1 → v2 only
+  // bumps the version (flags are additive), so the fields below read the same.
+  const migrated =
+    version < SCHEMA_VERSION ? migrateDesign(data, version) : data;
+  if (typeof migrated.name !== "string") {
     throw new DesignValidationError("Design.name must be a string");
   }
-  if (!Array.isArray(data.pieces)) {
+  if (!Array.isArray(migrated.pieces)) {
     throw new DesignValidationError("Design.pieces must be an array");
   }
-  const pieces = data.pieces.map(validatePiece);
-  return { schemaVersion: SCHEMA_VERSION, name: data.name, pieces };
+  const pieces = migrated.pieces.map(validatePiece);
+  return { schemaVersion: SCHEMA_VERSION, name: migrated.name, pieces };
 }
 
 /** Parse + validate a JSON string into a Design. */
