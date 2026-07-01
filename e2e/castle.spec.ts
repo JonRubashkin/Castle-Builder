@@ -1069,6 +1069,159 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect(after.clothWidth).toBe(before.clothWidth);
   });
 
+  test("flag editor: add stripes + a charge, Apply → stored design contains them (undoable)", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    // Place a flag and select it (the thin pole is awkward to pick by a click).
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    await page.getByRole("button", { name: "Select" }).click();
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+
+    const layerCountBefore = (await pieces(page))[0].design.layers.length;
+
+    // Open the editor.
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    await expect(page.getByRole("dialog", { name: "Flag design editor" })).toBeVisible();
+
+    // Add a stripes layer and a charge layer.
+    await page.getByRole("button", { name: "Add stripes" }).click();
+    await page.getByRole("button", { name: "Add charge" }).click();
+
+    // Apply → the stored embedded design gains both layers, in ONE undoable edit.
+    await page.getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("dialog", { name: "Flag design editor" })).toBeHidden();
+
+    const design = (await pieces(page))[0].design;
+    expect(design.layers.length).toBe(layerCountBefore + 2);
+    expect(design.layers.some((l: any) => l.kind === "stripes")).toBe(true);
+    expect(design.layers.some((l: any) => l.kind === "charge")).toBe(true);
+
+    // One undo reverses the whole applied edit (coalesced).
+    await page.evaluate(() => (window as any).__CASTLE_E2E__.getState().undo());
+    await expect
+      .poll(async () => (await pieces(page))[0].design.layers.length)
+      .toBe(layerCountBefore);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("flag editor: drag a charge on the preview updates its (x,y) and the sliders", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    await page.getByRole("button", { name: "Select" }).click();
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    // Add a charge (defaults to the flag center, so a center press grabs it).
+    await page.getByRole("button", { name: "Add charge" }).click();
+
+    // The X slider starts at 0.5 (the default charge position).
+    const xSlider = page.getByLabel("Charge X");
+    expect(Number(await xSlider.inputValue())).toBeCloseTo(0.5, 2);
+
+    // Drag the charge from the preview center toward the left edge (a DOM pointer
+    // drag — never reading canvas pixels).
+    const canvas = page.locator(".flag-editor__canvas");
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("preview canvas has no box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2, { steps: 6 });
+    await page.mouse.up();
+
+    // The slider (single source of truth for the charge's x) reflects the drag.
+    await expect
+      .poll(async () => Number(await xSlider.inputValue()))
+      .toBeLessThan(0.4);
+
+    // Apply → the stored charge's x moved to match the dragged value.
+    const sliderX = Number(await xSlider.inputValue());
+    await page.getByRole("button", { name: "Apply" }).click();
+
+    const charge = (await pieces(page))[0].design.layers.find(
+      (l: any) => l.kind === "charge",
+    );
+    expect(charge).toBeTruthy();
+    expect(charge.x).toBeCloseTo(sliderX, 2);
+    expect(charge.x).toBeLessThan(0.4); // it really moved off center
+  });
+
+  test("flag editor: Esc discards the working copy (flag design unchanged)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    await page.getByRole("button", { name: "Select" }).click();
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+
+    const layersBefore = (await pieces(page))[0].design.layers.length;
+
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    await page.getByRole("button", { name: "Add charge" }).click();
+    await page.getByRole("button", { name: "Add stripes" }).click();
+
+    // Esc discards: the modal closes, the flag stays selected, design untouched.
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Flag design editor" })).toBeHidden();
+    expect(await selectedId(page)).not.toBeNull();
+    expect((await pieces(page))[0].design.layers.length).toBe(layersBefore);
+  });
+
+  test("flag editor: aspect edit reshapes the design on Apply", async ({ page }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    await page.getByRole("button", { name: "Select" }).click();
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+
+    const aspectBefore = (await pieces(page))[0].design.aspect;
+
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    // Nudge the aspect slider to its max, then Apply.
+    await page.getByLabel("Aspect").fill("3");
+    await page.getByRole("button", { name: "Apply" }).click();
+
+    const aspectAfter = (await pieces(page))[0].design.aspect;
+    expect(aspectAfter).not.toBe(aspectBefore);
+    expect(aspectAfter).toBeCloseTo(3, 6);
+  });
+
   test("New Castle: Esc dismisses the dialog with no change", async ({ page }) => {
     await openApp(page);
 

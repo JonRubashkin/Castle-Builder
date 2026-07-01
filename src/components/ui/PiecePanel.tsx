@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useStore } from "../../store/store";
+import { FlagEditor } from "./FlagEditor";
 import type {
   Flag,
   Gate,
@@ -556,14 +558,26 @@ function RampPanel({ ramp }: { ramp: Ramp }) {
 function FlagPanel({ flag }: { flag: Flag }) {
   const updatePiece = useStore((s) => s.updatePiece);
   const deletePiece = useStore((s) => s.deletePiece);
+  const [editing, setEditing] = useState(false);
 
   return (
     <aside className="panel" aria-label="Flag properties" data-piece-id={flag.id}>
       <h2 className="panel__title">Flag</h2>
       <p className="panel__hint">
-        A flag on a pole. It carries its own embedded design — full design editing
-        (field, stripes, charges) arrives with the flag editor.
+        A flag on a pole. It carries its own embedded design — edit its field,
+        stripes, and charges in the design editor.
       </p>
+
+      <button
+        type="button"
+        className="panel__edit-design"
+        data-action="edit-flag-design"
+        onClick={() => setEditing(true)}
+      >
+        Edit design…
+      </button>
+
+      {editing && <FlagEditor flag={flag} onClose={() => setEditing(false)} />}
 
       <NumberField
         label="Pole height"

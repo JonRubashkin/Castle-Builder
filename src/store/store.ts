@@ -32,6 +32,7 @@ import {
   type Vec2,
   type WallRun,
 } from "./schema";
+import type { FlagDesign } from "../flags/types";
 import { resolveSupportAt, type PlacementMode } from "../geometry/support";
 import { resolvePlaceOnTop } from "../geometry/placeOnTop";
 import { groundHeightAt } from "../geometry/ground";
@@ -141,6 +142,12 @@ export interface StoreState {
   addMoatSegment: (input: { position: Vec2; end: Vec2 }) => string;
   updatePiece: (id: string, patch: Partial<Piece>) => void;
   setWallEndpoint: (id: string, which: WallEndpoint, point: Vec2) => void;
+  // Replace a flag's embedded FlagDesign wholesale (the flag editor's Apply). ONE
+  // undoable, coalesced commit: the editor edits a WORKING COPY in local state and
+  // only calls this on Apply, so an entire editing session (many layer edits + a
+  // charge drag) collapses into a single history entry — the project's
+  // slider-coalescing spirit — while Cancel/Esc simply discard the working copy.
+  updateFlagDesign: (id: string, design: FlagDesign) => void;
   deletePiece: (id: string) => void;
 
   // --- transient interaction (drag / gizmo) ---
@@ -432,6 +439,16 @@ export const useStore = create<StoreState>((set, get) => {
       commit((design) => {
         const piece = design.pieces.find((p) => p.id === id);
         if (piece) Object.assign(piece, patch);
+        return design;
+      });
+    },
+
+    updateFlagDesign: (id, flagDesign) => {
+      commit((design) => {
+        const piece = design.pieces.find((p) => p.id === id);
+        // Only flags carry an embedded design; clone so the working copy the
+        // editor keeps editing can't leak into committed (history) state.
+        if (piece && piece.kind === "flag") piece.design = clone(flagDesign);
         return design;
       });
     },
