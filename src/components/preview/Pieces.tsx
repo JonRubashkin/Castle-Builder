@@ -5,6 +5,7 @@ import { WallRunMesh } from "./WallRunMesh";
 import { GateMesh } from "./GateMesh";
 import { MoatMesh } from "./MoatMesh";
 import { RampMesh } from "./RampMesh";
+import { FlagMesh } from "./FlagMesh";
 
 /** Renders every piece in the design. */
 export function Pieces() {
@@ -25,6 +26,8 @@ export function Pieces() {
             return <MoatMesh key={piece.id} piece={piece} />;
           case "ramp":
             return <RampMesh key={piece.id} piece={piece} />;
+          case "flag":
+            return <FlagMesh key={piece.id} piece={piece} />;
           default:
             return null;
         }
