@@ -509,51 +509,65 @@ One scoping note still holds: **working-plane-at-arbitrary-height placement is
 deferred** — the ramp's top click must hit a real surface; empty-air top points are
 a phase 2+ deferral (face-attach covers the stacking these phases need).
 
-**Post-1e refinement — placement-mode toggles (still phase 1, not new scope):**
-Two toggle tabs on the right of the viewport, shown **while a piece is selected**
-(hidden otherwise), change how a moved/dragged piece resolves its support. They
-are a **persisted UI preference — NOT part of the `Design`, NOT in undo history**
-(the snapToWall-style pref pattern): stored in their own `localStorage` slot
+**Post-1e refinement — "Keep on ground" toggle (still phase 1, not new scope):**
+One toggle tab on the right of the viewport, shown **while a piece is selected**
+(hidden otherwise), changes how a moved/dragged piece resolves its support. It is
+a **persisted UI preference — NOT part of the `Design`, NOT in undo history** (the
+snapToWall-style pref pattern): stored in its own `localStorage` slot
 (`savePlacementMode` / `loadPlacementMode` in `src/persistence/storage.ts`),
-hydrated into the store on boot, survive reload, and are untouched by `newDesign`.
-- Modeled as ONE mutually-exclusive enum `placementMode: "normal" | "groundOnly"
-  | "centerOnSupport"` on the store (default `"normal"` = both off), set through
-  the `setPlacementMode` action — a single enum makes the two toggles inherently
-  exclusive (turning one on clears the other). The tabs
-  (`components/ui/PlacementModeTabs.tsx`) toggle a mode on/off (clicking the active
-  one returns to `"normal"`).
+hydrated into the store on boot, survives reload, and is untouched by `newDesign`.
+- Modeled as ONE enum `placementMode: "normal" | "groundOnly"` on the store
+  (default `"normal"` = off), set through the `setPlacementMode` action. The tab
+  (`components/ui/PlacementModeTabs.tsx`) flips between the two.
 - The behavior routes through the ONE shared support path, **not a duplicate**:
-  `resolveSupportAt(anchor, pieces, mode, moving?)` is mode-aware — `groundOnly`
+  `resolveSupportAt(anchor, pieces, mode)` is mode-aware — `groundOnly`
   short-circuits to the ground (skips surface hits; base still routed through
-  `groundHeightAt`), `centerOnSupport` **latches** the moved piece onto a support
-  as soon as it is *mostly there* and reports that support's **center** (its own
-  `position` anchor — the existing footprint source of truth, never a separately
-  computed center), `normal` is unchanged. **The latch is EAGER, not
-  anchor-over-footprint:** the moved piece centers on a support when **>50% of its
-  footprint overlaps** the support **OR their centers align** — the pure test is
-  `shouldCenterSnap` in `src/geometry/footprintOverlap.ts` (area-sampled overlap
-  fraction + an anchor-alignment tolerance), reusing the SAME per-piece footprint
-  helpers the meshes/hit-test use so it can't drift. It needs the `moving` piece
-  (to measure overlap), which the move path passes; without `moving` the mode
-  falls back to the old anchor-over-footprint rule (backward compatible). Because
-  the piece will land centered on the support, it rises to **that support's top**,
-  not whatever is under the live anchor. The mode is **read in the move path**:
-  the store's `setPiecePositionTransient` passes `state.placementMode` **and the
-  moved piece** straight into `resolveSupportAt`; when a `center` comes back the
-  moved piece's anchor snaps onto it (a two-point wall shifts both endpoints
-  rigidly). **The center snap is DEFERRED to the drop (`commitTransient`), not
-  applied mid-drag** — during a live gizmo drag the mesh's group is driven
-  imperatively by `TransformControls` from the pointer, so moving the anchor
-  mid-drag would fight it (two writers on one object → jitter, the piece never
-  lands on top). So the live move keeps the anchor tracking the pointer (only the
-  base/height resolves live) and stashes the target center in `pendingCenterSnap`;
-  `commitTransient` applies it when the drag ends. `normal`/`groundOnly` never move
-  the anchor, so they never had this conflict. The moat stays inherently
-  ground-only regardless of the toggles.
+  `groundHeightAt`), `normal` is the default face-attach rule (ground or a piece
+  top). The mode is **read in the move path**: the store's
+  `setPiecePositionTransient` passes `state.placementMode` straight into
+  `resolveSupportAt`. The moat stays inherently ground-only regardless of the
+  toggle.
 - **Scoped to the move/drag path** (a selected piece being dragged) — initial
-  placement of a NEW piece is deliberately unaffected (the tabs only show with a
+  placement of a NEW piece is deliberately unaffected (the tab only shows with a
   selection, and the placement path calls `resolveSupportAt` with the default
   `"normal"` mode).
+
+**Post-1e refinement — the "Place on top" one-shot action (still phase 1, not new
+scope):** A **"Place on top of…"** button in the selected piece's properties panel
+(`PlaceOnTopButton` in `components/ui/PiecePanel.tsx`), shown for **every piece
+except the moat** (water can't be the piece being placed). It replaces the old
+persisted center-on-support mode with an **explicit, one-shot action** — the
+generate-once-and-explicit-beats-clever-auto lesson.
+- **Armed state** is a transient UI flag `placeOnTopArmed` on the store (NOT part
+  of the `Design`, NOT persisted, NOT in undo history), set/cleared by
+  `armPlaceOnTop` / `cancelPlaceOnTop`. While armed the button shows an active
+  state and a viewport banner (`PlaceOnTopHint`) + crosshair cursor hint the user
+  to click a target.
+- While armed, a click on a piece routes through `placeOnTopTarget(targetId)`
+  (the six mesh click handlers branch on `placeOnTopArmed` before selecting)
+  instead of selecting. The pure resolver `resolvePlaceOnTop(moving, target)` in
+  `src/geometry/placeOnTop.ts` returns `{ position, base, end? }`: `base` seats on
+  the **target's flat top** via the SHARED height helper `flatTopWorldY` in
+  `support.ts` (the same `groundHeightAt + base + height` logic face-attach uses —
+  **never a literal**), and the moving piece's footprint **center** aligns to the
+  **target's own `position` anchor** (the footprint source of truth — never a
+  separately computed center). A **two-point wall** shifts **both endpoints
+  rigidly** so its midpoint lands on the target center. It is **ONE undoable step**
+  (`placeOnTopTarget` calls the store's `commit`); the moved piece **stays
+  selected** and the action ends (disarms).
+- **Overhang is allowed** — a moving piece larger than the target top still
+  centers (honest, visible; nudge/move after). **No blocking, no rejection.**
+- **Excluded targets: the moat and the ramp** — derived from `flatTopWorldY`
+  returning null (a moat is flat water / not a face-attach surface; a ramp's top is
+  a slope). `isPlaceOnTopTarget(piece)` = `flatTopWorldY(piece) !== null`, so the
+  target set is exactly {tower, gatehouse, wall run, gate} and can't drift from the
+  height helper. Clicking an excluded target while armed is a **no-op that stays
+  armed** (pick a real target without re-arming); clicking the **already-selected
+  piece** cancels; **Esc** (via `useKeyboardShortcuts`, without deselecting) or a
+  click on **empty ground** (via `GroundInteraction`) cancels with the selection
+  unchanged.
+- After placing, the piece rests on the target and can be freely gizmo-moved on top
+  (normal move behavior) or sent elsewhere by arming "Place on top" again.
 
 - **1a (foundation):** fresh Vite + React + TS repo; Zustand store + schema v1 +
   undo/redo; the 3D scene with the carried-over orthographic iso camera + orbit/zoom

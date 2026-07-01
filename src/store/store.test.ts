@@ -212,22 +212,18 @@ describe("store: a gizmo move resolves base through the same support rule", () =
   });
 });
 
-describe("store: placement-mode toggles (persisted pref, mode-aware move path)", () => {
+describe("store: placement-mode toggle (persisted pref, mode-aware move path)", () => {
   beforeEach(() => {
     reset();
-    useStore.getState().setPlacementMode("normal"); // start from both-off
+    useStore.getState().setPlacementMode("normal"); // start from off
   });
 
   const tower = (id: string) =>
     useStore.getState().design.pieces.find((p) => p.id === id) as Tower;
 
-  it("setPlacementMode enforces mutual exclusivity (turning one on clears the other)", () => {
+  it("setPlacementMode toggles between normal and groundOnly", () => {
     useStore.getState().setPlacementMode("groundOnly");
     expect(useStore.getState().placementMode).toBe("groundOnly");
-    // Turning the other on clears the first — a single enum can only hold one.
-    useStore.getState().setPlacementMode("centerOnSupport");
-    expect(useStore.getState().placementMode).toBe("centerOnSupport");
-    // Back to normal (both off).
     useStore.getState().setPlacementMode("normal");
     expect(useStore.getState().placementMode).toBe("normal");
   });
@@ -244,148 +240,16 @@ describe("store: placement-mode toggles (persisted pref, mode-aware move path)",
     expect(tower(moverId).position).toEqual({ x: 0, y: 0 });
   });
 
-  it("centerOnSupport: the anchor centers on the support at COMMIT (not mid-drag)", () => {
-    // The XZ centering is DEFERRED to commit so it doesn't fight the live gizmo
-    // (TransformControls drives the same object from the pointer during a drag).
-    // During the transient move the anchor tracks the pointer and only the height
-    // is resolved; on commit (drop) it snaps onto the supporting piece's center.
-    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
+  it("normal: a piece dragged over another climbs onto its top (face-attach)", () => {
+    useStore.getState().addTower(at(0, 0)); // ground, height 8
     const moverId = useStore.getState().addTower(at(50, 50));
-    const lower = tower(lowerId);
-    useStore.getState().setPlacementMode("centerOnSupport");
+    useStore.getState().setPlacementMode("normal");
 
     useStore.getState().beginTransient();
-    // Drag the mover inside the lower tower's footprint but off its center.
-    useStore.getState().setPiecePositionTransient(moverId, { x: 3.5, y: -1.5 });
-    // Mid-drag: the anchor still tracks the pointer (raw), NOT yet centered — but
-    // the height is already resolved to the support top so it reads as "on top".
-    expect(tower(moverId).position).toEqual({ x: 3.5, y: -1.5 });
-    expect(tower(moverId).base).toBe(lower.base + lower.height);
-
-    // On drop the deferred snap lands the anchor on the supporting piece's center.
-    useStore.getState().commitTransient();
-    expect(tower(moverId).position).toEqual({ x: 3, y: -2 });
-    expect(tower(moverId).base).toBe(lower.base + lower.height);
-  });
-
-  it("centerOnSupport: the live drag echoes the pointer (anti-gizmo-fight invariant)", () => {
-    // Regression guard for the LIVE bug: dragging a piece onto another with the
-    // Center-on-support button on did nothing, because the store moved the anchor
-    // to the support center mid-drag while TransformControls was driving the same
-    // object from the pointer — two writers fighting, so the piece never settled.
-    // The fix keeps the anchor EQUAL to the pointer during the drag (so it never
-    // fights the gizmo). This test simulates the gizmo firing onObjectChange
-    // repeatedly and asserts the anchor echoes each pointer step exactly.
-    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
-    const moverId = useStore.getState().addTower(at(50, 50));
-    const lower = tower(lowerId);
-    const towerTop = lower.base + lower.height;
-    useStore.getState().setPlacementMode("centerOnSupport");
-
-    useStore.getState().beginTransient();
-    // A sweep of pointer positions across the tower footprint (off-center).
-    for (const p of [
-      { x: 4.5, y: -1.0 },
-      { x: 3.8, y: -2.4 },
-      { x: 2.6, y: -1.7 },
-    ]) {
-      useStore.getState().setPiecePositionTransient(moverId, p);
-      // The anchor tracks the pointer EXACTLY — never jumps to the center — so the
-      // gizmo and the store stay in agreement (no fight). Height reads as on-top.
-      expect(tower(moverId).position).toEqual(p);
-      expect(tower(moverId).base).toBe(towerTop);
-    }
-
-    // Only on drop does it snap onto the support center (still raised).
-    useStore.getState().commitTransient();
-    expect(tower(moverId).position).toEqual({ x: 3, y: -2 });
-    expect(tower(moverId).base).toBe(towerTop);
-  });
-
-  it("centerOnSupport: dragging onto a tower RISES to the top, not ground (regression)", () => {
-    // Regression guard for the reported bug ("stays at ground / behaves like
-    // ground-only"). Through the full move→commit path the moved piece must end
-    // up seated on the supporting tower's TOP (base = tower top, NOT 0) AND
-    // centered — contrasted below with groundOnly, which stays on the ground.
-    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
-    const moverId = useStore.getState().addTower(at(50, 50));
-    const lower = tower(lowerId);
-    const groundY = 0; // groundHeightAt is 0 this phase
-    const towerTop = lower.base + lower.height; // 8
-
-    useStore.getState().setPlacementMode("centerOnSupport");
-    useStore.getState().selectPiece(moverId);
-    useStore.getState().beginTransient();
-    useStore.getState().setPiecePositionTransient(moverId, { x: 3.5, y: -1.5 });
-    useStore.getState().commitTransient();
-
-    // Rose to the surface top — explicitly NOT the ground — and centered.
-    expect(tower(moverId).base).toBe(towerTop);
-    expect(tower(moverId).base).not.toBe(groundY);
-    expect(tower(moverId).position).toEqual({ x: 3, y: -2 });
-
-    // Contrast: groundOnly over the same tower stays on the ground (no rise).
-    const groundMoverId = useStore.getState().addTower(at(60, 60));
-    useStore.getState().setPlacementMode("groundOnly");
-    useStore.getState().selectPiece(groundMoverId);
-    useStore.getState().beginTransient();
-    useStore.getState().setPiecePositionTransient(groundMoverId, { x: 3.5, y: -1.5 });
-    useStore.getState().commitTransient();
-    expect(tower(groundMoverId).base).toBe(groundY);
-  });
-
-  it("centerOnSupport: below the 50% threshold it RISES but does NOT center (eager rule)", () => {
-    // Drag the mover so its anchor sits inside the support footprint but LESS than
-    // half of it overlaps (two radius-2 towers ~1.7 m apart ≈ 48% overlap). The
-    // eager rule requires >50% (or aligned centers), so it face-attaches (rises)
-    // yet keeps the raw XZ — it must NOT snap to the support center.
-    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
-    const moverId = useStore.getState().addTower(at(50, 50));
-    const lower = tower(lowerId);
-    useStore.getState().setPlacementMode("centerOnSupport");
-    useStore.getState().selectPiece(moverId);
-    useStore.getState().beginTransient();
-    useStore.getState().setPiecePositionTransient(moverId, { x: 3, y: -0.3 });
-    useStore.getState().commitTransient();
-    // Rose onto the tower (anchor is over its footprint) but stayed off-center.
-    expect(tower(moverId).base).toBe(lower.base + lower.height);
-    expect(tower(moverId).position).toEqual({ x: 3, y: -0.3 });
-  });
-
-  it("centerOnSupport: crossing the 50% threshold latches and centers (eager rule)", () => {
-    // Nudge closer (~0.7 m apart ≈ 80% overlap) → over the 50% threshold → the
-    // piece latches onto the support with their centers aligned.
-    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
-    const moverId = useStore.getState().addTower(at(50, 50));
-    const lower = tower(lowerId);
-    useStore.getState().setPlacementMode("centerOnSupport");
-    useStore.getState().selectPiece(moverId);
-    useStore.getState().beginTransient();
-    useStore.getState().setPiecePositionTransient(moverId, { x: 3.5, y: -1.5 });
-    useStore.getState().commitTransient();
-    expect(tower(moverId).base).toBe(lower.base + lower.height);
-    expect(tower(moverId).position).toEqual({ x: 3, y: -2 }); // centered on the support
-  });
-
-  it("centerOnSupport over open ground behaves like normal: seats on ground, no center", () => {
-    const moverId = useStore.getState().addTower(at(50, 50));
-    useStore.getState().setPlacementMode("centerOnSupport");
-    useStore.getState().selectPiece(moverId);
-    useStore.getState().beginTransient();
-    // No piece under the anchor → nothing to center on → stays put on the ground.
-    useStore.getState().setPiecePositionTransient(moverId, { x: 20, y: 20 });
-    useStore.getState().commitTransient();
-    expect(tower(moverId).base).toBe(0);
-    expect(tower(moverId).position).toEqual({ x: 20, y: 20 });
-  });
-
-  it("centerOnSupport over open ground leaves the anchor where it is (no surface)", () => {
-    const moverId = useStore.getState().addTower(at(50, 50));
-    useStore.getState().setPlacementMode("centerOnSupport");
-    useStore.getState().beginTransient();
-    useStore.getState().setPiecePositionTransient(moverId, { x: 20, y: 20 });
-    expect(tower(moverId).position).toEqual({ x: 20, y: 20 });
-    expect(tower(moverId).base).toBe(0);
+    useStore.getState().setPiecePositionTransient(moverId, { x: 0, y: 0 });
+    expect(tower(moverId).base).toBe(8); // seated on the lower tower's top
+    // Normal never re-centers the anchor — it tracks the pointer exactly.
+    expect(tower(moverId).position).toEqual({ x: 0, y: 0 });
   });
 
   it("the placement mode is NOT part of the design and survives undo", () => {
@@ -397,6 +261,107 @@ describe("store: placement-mode toggles (persisted pref, mode-aware move path)",
     expect(useStore.getState().placementMode).toBe("groundOnly");
     // And it is not stored on the design document.
     expect("placementMode" in useStore.getState().design).toBe(false);
+  });
+});
+
+describe("store: the one-shot 'Place on top' action", () => {
+  beforeEach(reset);
+
+  const piece = (id: string) =>
+    useStore.getState().design.pieces.find((p) => p.id === id) as Tower;
+
+  it("arms only with a selection; seats the selected piece on the target top, centered", () => {
+    const targetId = useStore.getState().addTower({ position: { x: 3, y: -2 }, base: 0 });
+    const moverId = useStore.getState().addTower({ position: { x: 40, y: 40 }, base: 0 });
+    const target = piece(targetId);
+
+    useStore.getState().selectPiece(moverId);
+    useStore.getState().armPlaceOnTop();
+    expect(useStore.getState().placeOnTopArmed).toBe(true);
+
+    useStore.getState().placeOnTopTarget(targetId);
+
+    // Seated on the target's top, centered on its anchor; still selected; disarmed.
+    expect(piece(moverId).base).toBe(target.base + target.height);
+    expect(piece(moverId).base).not.toBe(0);
+    expect(piece(moverId).position).toEqual({ x: 3, y: -2 });
+    expect(useStore.getState().selectedId).toBe(moverId);
+    expect(useStore.getState().placeOnTopArmed).toBe(false);
+  });
+
+  it("is ONE undoable step (undo returns the piece to its prior spot + base)", () => {
+    const targetId = useStore.getState().addTower({ position: { x: 3, y: -2 }, base: 0 });
+    const moverId = useStore.getState().addTower({ position: { x: 40, y: 40 }, base: 0 });
+    useStore.getState().selectPiece(moverId);
+    useStore.getState().armPlaceOnTop();
+    useStore.getState().placeOnTopTarget(targetId);
+
+    useStore.getState().undo();
+    expect(piece(moverId).position).toEqual({ x: 40, y: 40 });
+    expect(piece(moverId).base).toBe(0);
+  });
+
+  it("arming requires a selection (no-op when nothing selected)", () => {
+    useStore.getState().selectPiece(null);
+    useStore.getState().armPlaceOnTop();
+    expect(useStore.getState().placeOnTopArmed).toBe(false);
+  });
+
+  it("clicking the selected piece itself while armed cancels (no placement)", () => {
+    const moverId = useStore.getState().addTower({ position: { x: 5, y: 5 }, base: 0 });
+    useStore.getState().selectPiece(moverId);
+    useStore.getState().armPlaceOnTop();
+    useStore.getState().placeOnTopTarget(moverId); // click self
+    expect(useStore.getState().placeOnTopArmed).toBe(false);
+    expect(piece(moverId).position).toEqual({ x: 5, y: 5 });
+    expect(piece(moverId).base).toBe(0);
+  });
+
+  it("clicking an invalid target (a moat) is a no-op that STAYS armed", () => {
+    const moatId = useStore.getState().addMoatRing({ position: { x: 0, y: 0 } });
+    const moverId = useStore.getState().addTower({ position: { x: 40, y: 40 }, base: 0 });
+    useStore.getState().selectPiece(moverId);
+    useStore.getState().armPlaceOnTop();
+    useStore.getState().placeOnTopTarget(moatId);
+    // No placement, and still armed so the user can pick a real target.
+    expect(useStore.getState().placeOnTopArmed).toBe(true);
+    expect(piece(moverId).base).toBe(0);
+    expect(piece(moverId).position).toEqual({ x: 40, y: 40 });
+  });
+
+  it("selecting another piece disarms the action", () => {
+    const aId = useStore.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+    const bId = useStore.getState().addTower({ position: { x: 20, y: 20 }, base: 0 });
+    useStore.getState().selectPiece(aId);
+    useStore.getState().armPlaceOnTop();
+    expect(useStore.getState().placeOnTopArmed).toBe(true);
+    useStore.getState().selectPiece(bId);
+    expect(useStore.getState().placeOnTopArmed).toBe(false);
+  });
+
+  it("a two-point wall recenters BOTH endpoints onto the target center", () => {
+    const targetId = useStore.getState().addTower({ position: { x: 10, y: 0 }, base: 0 });
+    const target = piece(targetId);
+    const wallId = useStore
+      .getState()
+      .addWallRun({ position: { x: 0, y: 0 }, end: { x: 4, y: 0 }, base: 0 });
+    useStore.getState().selectPiece(wallId);
+    useStore.getState().armPlaceOnTop();
+    useStore.getState().placeOnTopTarget(targetId);
+
+    const wall = useStore.getState().design.pieces.find((p) => p.id === wallId) as {
+      position: { x: number; y: number };
+      end: { x: number; y: number };
+      base: number;
+    };
+    // The wall's midpoint lands on the target center; endpoints shift rigidly.
+    const midX = (wall.position.x + wall.end.x) / 2;
+    const midY = (wall.position.y + wall.end.y) / 2;
+    expect(midX).toBeCloseTo(10, 6);
+    expect(midY).toBeCloseTo(0, 6);
+    expect(wall.position).toEqual({ x: 8, y: 0 });
+    expect(wall.end).toEqual({ x: 12, y: 0 });
+    expect(wall.base).toBe(target.base + target.height);
   });
 });
 

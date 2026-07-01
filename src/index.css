@@ -192,6 +192,34 @@ button:disabled {
   border-color: #c06060;
 }
 
+/* "Place on top" one-shot action button (in the piece panel). */
+.panel__place-on-top {
+  margin-top: 4px;
+  text-align: left;
+}
+
+.panel__place-on-top.is-armed {
+  border-color: var(--accent-strong);
+  background: #30435a;
+  color: var(--accent-strong);
+}
+
+/* Viewport banner shown while "Place on top" is armed. */
+.place-on-top-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 6px 14px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 6px;
+  background: rgba(48, 67, 90, 0.95);
+  color: var(--text);
+  font-size: 13px;
+  pointer-events: none;
+}
+
 /* File bar / storage disclosure */
 .filebar {
   display: flex;
