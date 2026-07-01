@@ -39,7 +39,7 @@ function gatehouse(overrides: Partial<Gatehouse> = {}): Gatehouse {
 describe("resolveSupportAt — the face-attach support rule", () => {
   it("over empty ground → base 0, not on a surface", () => {
     const r = resolveSupportAt({ x: 0, y: 0 }, []);
-    expect(r).toEqual({ base: 0, onSurface: false, surfaceId: null, center: null });
+    expect(r).toEqual({ base: 0, onSurface: false, surfaceId: null });
   });
 
   it("over empty ground with pieces elsewhere → still ground (base 0)", () => {
@@ -132,7 +132,6 @@ describe("resolveSupportAt — the face-attach support rule", () => {
       base: 0,
       onSurface: false,
       surfaceId: null,
-      center: null,
     });
   });
 
@@ -155,7 +154,6 @@ describe("resolveSupportAt — the face-attach support rule", () => {
       base: 0,
       onSurface: false,
       surfaceId: null,
-      center: null,
     });
   });
 
@@ -185,19 +183,17 @@ describe("resolveSupportAt — the face-attach support rule", () => {
       base: 0,
       onSurface: false,
       surfaceId: null,
-      center: null,
     });
   });
 });
 
 describe("resolveSupportAt — the placement modes", () => {
-  it("normal (default) is unchanged: over a tower top it face-attaches, no center", () => {
+  it("normal (default) is unchanged: over a tower top it face-attaches", () => {
     const lower = tower({ id: "lower", base: 0, height: 8 });
     const r = resolveSupportAt({ x: 0, y: 0 }, [lower], "normal");
     expect(r.base).toBe(8);
     expect(r.onSurface).toBe(true);
     expect(r.surfaceId).toBe("lower");
-    expect(r.center).toBeNull();
   });
 
   it("groundOnly: returns ground height even when a surface is under the anchor", () => {
@@ -207,98 +203,12 @@ describe("resolveSupportAt — the placement modes", () => {
     expect(r.base).toBe(0); // ground (groundHeightAt is 0 this phase), never the top
     expect(r.onSurface).toBe(false);
     expect(r.surfaceId).toBeNull();
-    expect(r.center).toBeNull();
   });
 
-  it("centerOnSupport: reports the supporting piece's center XZ + the surface top", () => {
-    const lower = tower({ id: "lower", position: { x: 3, y: -2 }, base: 0, height: 8 });
-    const anchor = { x: 3.5, y: -1.5 }; // inside the tower footprint, off its center
-    const r = resolveSupportAt(anchor, [lower], "centerOnSupport");
-    expect(r.base).toBe(8); // height still comes from face-attach
-    expect(r.onSurface).toBe(true);
-    expect(r.surfaceId).toBe("lower");
-    // Center = the supporting piece's own anchor (its footprint source of truth).
-    expect(r.center).toEqual({ x: 3, y: -2 });
-  });
-
-  it("centerOnSupport rises to the SURFACE TOP, not the ground (the reported bug)", () => {
-    // Regression guard: centerOnSupport must NOT short-circuit to the ground like
-    // groundOnly. Over a supporting piece it must resolve the SAME surface-top
-    // height that normal does — the piece rises onto the surface AND centers.
-    const lower = tower({ id: "lower", position: { x: 3, y: -2 }, base: 0, height: 8 });
-    const anchor = { x: 3.5, y: -1.5 };
-    const center = resolveSupportAt(anchor, [lower], "centerOnSupport");
-    const normal = resolveSupportAt(anchor, [lower], "normal");
-    const ground = resolveSupportAt(anchor, [lower], "groundOnly");
-    // Same height as normal — the surface top, explicitly NOT the ground.
-    expect(center.base).toBe(normal.base);
-    expect(center.base).toBe(8);
-    expect(center.base).not.toBe(ground.base); // ground short-circuits to 0
-    expect(center.base).toBeGreaterThan(0);
-    // ...and, unlike normal, it additionally reports the supporting center.
-    expect(center.center).toEqual({ x: 3, y: -2 });
-    expect(normal.center).toBeNull();
-  });
-
-  it("centerOnSupport over open ground: no surface → no center (stays on ground)", () => {
-    const r = resolveSupportAt({ x: 0, y: 0 }, [], "centerOnSupport");
+  it("groundOnly over open ground: still the ground, no surface", () => {
+    const r = resolveSupportAt({ x: 5, y: 5 }, [], "groundOnly");
     expect(r.base).toBe(0);
     expect(r.onSurface).toBe(false);
-    expect(r.center).toBeNull();
-  });
-});
-
-describe("resolveSupportAt — eager center-on-support (>50% overlap or aligned centers)", () => {
-  it("latches BEFORE the anchor is over the support (>50% overlapped) and rises to its top", () => {
-    // A radius-2 tower over a radius-4 support, anchor at x=3: the anchor is
-    // still inside the support here, but the point is it latches on overlap, and
-    // rises to the SUPPORT's top and reports the support's center.
-    const support = tower({ id: "support", position: { x: 0, y: 0 }, radius: 4, height: 8 });
-    const moving = tower({ id: "moving", position: { x: 3, y: 0 }, radius: 2, height: 5 });
-    const r = resolveSupportAt(moving.position, [support], "centerOnSupport", moving);
-    expect(r.onSurface).toBe(true);
-    expect(r.surfaceId).toBe("support");
-    expect(r.center).toEqual({ x: 0, y: 0 });
-    expect(r.base).toBe(8); // the SUPPORT's top, since the piece lands centered on it
-  });
-
-  it("latches even when the anchor is OUTSIDE the support footprint (still >50% overlap)", () => {
-    // A big moving tower over a small support: shift it so its anchor sits just
-    // outside the small footprint but the moving piece still swallows >50%... use
-    // aligned-center to guarantee the outside-anchor latch.
-    const support = tower({ id: "s", position: { x: 0, y: 0 }, radius: 0.6, height: 6 });
-    const moving = tower({ id: "m", position: { x: 0, y: 0 }, radius: 3, height: 8 });
-    // anchor exactly aligned with the support center but far larger → latches.
-    const r = resolveSupportAt(moving.position, [support], "centerOnSupport", moving);
-    expect(r.center).toEqual({ x: 0, y: 0 });
-    expect(r.base).toBe(6);
-  });
-
-  it("does NOT latch (no center) when only slightly overlapping and centers apart", () => {
-    const support = tower({ id: "s", position: { x: 0, y: 0 }, radius: 2, height: 8 });
-    const moving = tower({ id: "m", position: { x: 3.5, y: 0 }, radius: 2, height: 5 });
-    const r = resolveSupportAt(moving.position, [support], "centerOnSupport", moving);
-    // Not "mostly on" the support → no center; anchor is off the footprint → ground.
-    expect(r.center).toBeNull();
-    expect(r.onSurface).toBe(false);
-    expect(r.base).toBe(0);
-  });
-
-  it("picks the HIGHEST support among several the piece is mostly on", () => {
-    const low = tower({ id: "low", position: { x: 0, y: 0 }, radius: 4, height: 6 });
-    const high = tower({ id: "high", position: { x: 0, y: 0 }, radius: 4, base: 6, height: 5 }); // top 11
-    const moving = tower({ id: "m", position: { x: 0.5, y: 0 }, radius: 1, height: 3 });
-    const r = resolveSupportAt(moving.position, [low, high], "centerOnSupport", moving);
-    expect(r.surfaceId).toBe("high");
-    expect(r.base).toBe(11);
-    expect(r.center).toEqual({ x: 0, y: 0 });
-  });
-
-  it("without `moving` it stays backward-compatible (anchor-over-footprint rule)", () => {
-    const lower = tower({ id: "lower", position: { x: 3, y: -2 }, base: 0, height: 8 });
-    const anchor = { x: 3.5, y: -1.5 }; // inside the footprint, off center
-    const r = resolveSupportAt(anchor, [lower], "centerOnSupport"); // no moving arg
-    expect(r.center).toEqual({ x: 3, y: -2 });
-    expect(r.base).toBe(8);
+    expect(r.surfaceId).toBeNull();
   });
 });

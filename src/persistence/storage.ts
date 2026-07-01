@@ -63,7 +63,7 @@ export function clearAutosave(): void {
 
 // --- Placement-mode preference (persisted, not in the Design) ---------------
 
-const PLACEMENT_MODES: PlacementMode[] = ["normal", "groundOnly", "centerOnSupport"];
+const PLACEMENT_MODES: PlacementMode[] = ["normal", "groundOnly"];
 
 /** Persist the placement-mode preference. Failures are non-fatal (privacy mode). */
 export function savePlacementMode(mode: PlacementMode): void {

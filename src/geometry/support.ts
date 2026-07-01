@@ -11,22 +11,20 @@
 
 import type { Piece, Vec2 } from "../store/schema";
 import { groundHeightAt } from "./ground";
-import { pieceFootprintContains, shouldCenterSnap } from "./footprintOverlap";
+import { footprintContains, towerFootprint } from "./towerFootprint";
+import { gatehouseFootprint } from "./gatehouseFootprint";
+import { wallRunFootprint } from "./wallRunFootprint";
+import { rectFootprintContains } from "./rectFootprint";
 
 /**
- * The three placement modes (a persisted UI pref, NOT part of the Design). They
- * are mutually exclusive — a moved piece resolves its support through ONE of them:
+ * The two placement modes (a persisted UI pref, NOT part of the Design). They are
+ * mutually exclusive — a moved piece resolves its support through ONE of them:
  *
- *  • "normal"          — the default face-attach rule (ground or a piece top).
- *  • "groundOnly"      — ignore face-attach entirely; always seat on the ground
- *                        (a moved piece never climbs onto other pieces).
- *  • "centerOnSupport" — snap the moved piece's anchor (XZ) onto a support's
- *                        center as soon as the piece is "mostly there" (>50%
- *                        footprint overlap, or aligned centers), not only when
- *                        the anchor is over the support. Height comes from that
- *                        support's top (the piece will land centered on it).
+ *  • "normal"     — the default face-attach rule (ground or a piece top).
+ *  • "groundOnly" — ignore face-attach entirely; always seat on the ground
+ *                   (a moved piece never climbs onto other pieces).
  */
-export type PlacementMode = "normal" | "groundOnly" | "centerOnSupport";
+export type PlacementMode = "normal" | "groundOnly";
 
 export interface SupportResult {
   /** The base to store on the new piece (worldY underside = groundHeightAt + base). */
@@ -35,26 +33,55 @@ export interface SupportResult {
   onSurface: boolean;
   /** The id of the piece seated upon, if any. */
   surfaceId: string | null;
-  /**
-   * For "centerOnSupport" when the moved piece latches to a support: that
-   * support's anchor (its own footprint center source of truth) to snap the
-   * moved piece's XZ to. Null/absent in every other case (normal, ground, or no
-   * latch).
-   */
-  center?: Vec2 | null;
 }
 
-/** World Y of a piece's top face (the surface a piece placed on it seats upon). */
-function pieceTopWorldY(piece: Piece): number | null {
+/**
+ * World Y of a piece's FLAT top — the single height formula shared by face-attach
+ * (`pieceTopWorldY` below) and the "Place on top" action (`resolvePlaceOnTop`).
+ * It routes through groundHeightAt + the stored base + the stored height, NEVER a
+ * literal ground-y. Pieces with no flat top return null: a ramp's top is a slope
+ * and a moat is flat water, so neither can be seated upon.
+ */
+export function flatTopWorldY(piece: Piece): number | null {
   switch (piece.kind) {
     case "tower":
     case "gatehouse":
     case "wallRun":
-      // Each carries a height; its anchor seats at groundHeightAt + base.
+    case "gate":
       return groundHeightAt(piece.position.x, piece.position.y) + piece.base + piece.height;
     default:
-      return null;
+      return null; // ramp (slope) / moat (water): no flat top
   }
+}
+
+/** Is a world XZ point inside this piece's footprint? The single containment
+ *  dispatch shared by support resolution. Only STACKABLE surfaces (tower /
+ *  gatehouse / wall run) are footprints a piece can face-attach onto; gate /
+ *  ramp / moat are never face-attach surfaces (they return false here). */
+function pieceFootprintContains(piece: Piece, point: Vec2): boolean {
+  switch (piece.kind) {
+    case "tower":
+      return footprintContains(towerFootprint(piece), point);
+    case "gatehouse":
+      return rectFootprintContains(gatehouseFootprint(piece), point);
+    case "wallRun":
+      return rectFootprintContains(wallRunFootprint(piece), point);
+    default:
+      return false; // gate / ramp / moat are not face-attach surfaces
+  }
+}
+
+/** The set of pieces a NEW piece can face-attach onto (ground-raycast placement /
+ *  the move-drag path). Distinct from the broader "Place on top" target set,
+ *  which also includes the gate — the two share the height formula
+ *  (`flatTopWorldY`) but not the surface set. */
+function isFaceAttachSurface(piece: Piece): boolean {
+  return piece.kind === "tower" || piece.kind === "gatehouse" || piece.kind === "wallRun";
+}
+
+/** World Y of a face-attach surface's top, or null for a non-surface piece. */
+function pieceTopWorldY(piece: Piece): number | null {
+  return isFaceAttachSurface(piece) ? flatTopWorldY(piece) : null;
 }
 
 /**
@@ -64,35 +91,25 @@ function pieceTopWorldY(piece: Piece): number | null {
  *
  * `mode` (default "normal") makes this the SINGLE mode-aware support path used by
  * both placement and the move/drag path — never a duplicate:
- *  • "groundOnly"      short-circuits to the ground (no surface hits considered).
- *  • "centerOnSupport" latches the moved piece onto a support as soon as it is
- *    "mostly there" (>50% footprint overlap or aligned centers — see
- *    `shouldCenterSnap`), reporting that support's center in `center` and rising
- *    to ITS top (the piece will land centered on it). Needs `moving` (the piece
- *    being dragged) to measure overlap; without it, falls back to the anchor-over
- *    -footprint rule for backward compatibility.
+ *  • "groundOnly" short-circuits to the ground (no surface hits considered).
  */
 export function resolveSupportAt(
   anchor: Vec2,
   pieces: Piece[],
   mode: PlacementMode = "normal",
-  moving?: Piece,
 ): SupportResult {
   const groundY = groundHeightAt(anchor.x, anchor.y);
 
   // Ground-only: ignore face-attach entirely — always seat on the ground. Base
   // is the ground-relative underside (0), routed through the ground-height rule.
   if (mode === "groundOnly") {
-    return { base: groundY - groundY, onSurface: false, surfaceId: null, center: null };
+    return { base: groundY - groundY, onSurface: false, surfaceId: null };
   }
 
   // Generic face-attach support: the highest STACKABLE piece whose footprint the
-  // anchor lies over (ground otherwise). Used by "normal", by centerOnSupport's
-  // no-latch fallback, and — captured as surfaceCenter — by the backward-compat
-  // (no `moving`) centerOnSupport path.
+  // anchor lies over (ground otherwise).
   let bestTop = groundY;
   let surfaceId: string | null = null;
-  let surfaceCenter: Vec2 | null = null;
   for (const piece of pieces) {
     const top = pieceTopWorldY(piece);
     if (top === null) continue;
@@ -100,44 +117,12 @@ export function resolveSupportAt(
     if (top > bestTop) {
       bestTop = top;
       surfaceId = piece.id;
-      surfaceCenter = { ...piece.position };
     }
-  }
-
-  // Eager center-on-support (the move/drag path, where `moving` is known): the
-  // piece latches onto the highest STACKABLE support it is "mostly on" — >50%
-  // footprint overlap OR aligned centers (`shouldCenterSnap`) — even if the live
-  // anchor is not yet over it, reporting that support's center and rising to ITS
-  // top (the piece will land centered on it on drop). Below that threshold it is
-  // plain face-attach with NO centering — so a center is reported ONLY when the
-  // 50%/aligned rule fires, never merely because the anchor grazed a footprint.
-  if (mode === "centerOnSupport" && moving) {
-    let snapTop = -Infinity;
-    let snapId: string | null = null;
-    let snapCenter: Vec2 | null = null;
-    for (const piece of pieces) {
-      const top = pieceTopWorldY(piece);
-      if (top === null) continue; // only stackable surfaces
-      if (!shouldCenterSnap(moving, piece)) continue;
-      if (top > snapTop) {
-        snapTop = top;
-        snapId = piece.id;
-        snapCenter = { ...piece.position };
-      }
-    }
-    if (snapCenter) {
-      return { base: snapTop - groundY, onSurface: true, surfaceId: snapId, center: snapCenter };
-    }
-    // No latch → plain face-attach at the live anchor, no centering.
-    return { base: bestTop - groundY, onSurface: surfaceId !== null, surfaceId, center: null };
   }
 
   return {
     base: bestTop - groundY, // 0 over ground; the surface top (rel. ground) over a piece
     onSurface: surfaceId !== null,
     surfaceId,
-    // Backward-compat: with no `moving`, centerOnSupport reports the anchor-over
-    // -footprint center (the older rule). normal/others never report a center.
-    center: mode === "centerOnSupport" ? surfaceCenter : null,
   };
 }

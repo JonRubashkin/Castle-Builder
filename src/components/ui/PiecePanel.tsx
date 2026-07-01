@@ -174,6 +174,30 @@ function MaterialControl({
   );
 }
 
+/**
+ * The one-shot "Place on top" action button, shared by every piece panel EXCEPT
+ * the moat (water can't be the piece being placed). Clicking it ARMS the action
+ * (the button shows an armed state + a "click a target" hint); the next click on a
+ * valid target piece seats this piece on that target's top, centered. Clicking it
+ * again (or Esc / empty space) cancels. See the store's placeOnTopTarget.
+ */
+function PlaceOnTopButton() {
+  const armed = useStore((s) => s.placeOnTopArmed);
+  const arm = useStore((s) => s.armPlaceOnTop);
+  const cancel = useStore((s) => s.cancelPlaceOnTop);
+  return (
+    <button
+      type="button"
+      className={armed ? "panel__place-on-top is-armed" : "panel__place-on-top"}
+      aria-pressed={armed}
+      data-place-on-top
+      onClick={() => (armed ? cancel() : arm())}
+    >
+      {armed ? "Click a target to place on top… (Esc to cancel)" : "Place on top of…"}
+    </button>
+  );
+}
+
 /** The shared crenellations toggle + (when on) the merlon-size field. */
 function CrenellationFields({
   crenellated,
@@ -263,6 +287,8 @@ function TowerPanel({ tower }: { tower: Tower }) {
         onChange={(m) => updatePiece(tower.id, { material: m })}
       />
 
+      <PlaceOnTopButton />
+
       <button type="button" className="panel__delete" onClick={() => deletePiece(tower.id)}>
         Delete tower
       </button>
@@ -319,6 +345,8 @@ function GatehousePanel({ gatehouse }: { gatehouse: Gatehouse }) {
         material={gatehouse.material}
         onChange={(m) => updatePiece(gatehouse.id, { material: m })}
       />
+
+      <PlaceOnTopButton />
 
       <button
         type="button"
@@ -401,6 +429,8 @@ function WallRunPanel({ wall }: { wall: WallRun }) {
         onChange={(m) => updatePiece(wall.id, { material: m })}
       />
 
+      <PlaceOnTopButton />
+
       <button type="button" className="panel__delete" onClick={() => deletePiece(wall.id)}>
         Delete wall
       </button>
@@ -443,6 +473,8 @@ function GatePanel({ gate }: { gate: Gate }) {
         material={gate.material}
         onChange={(m) => updatePiece(gate.id, { material: m })}
       />
+
+      <PlaceOnTopButton />
 
       <button type="button" className="panel__delete" onClick={() => deletePiece(gate.id)}>
         Delete gate
@@ -510,6 +542,8 @@ function RampPanel({ ramp }: { ramp: Ramp }) {
         material={ramp.material}
         onChange={(m) => updatePiece(ramp.id, { material: m })}
       />
+
+      <PlaceOnTopButton />
 
       <button type="button" className="panel__delete" onClick={() => deletePiece(ramp.id)}>
         Delete ramp

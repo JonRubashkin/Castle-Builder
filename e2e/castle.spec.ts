@@ -745,19 +745,20 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     await expect.poll(() => pieceCount(page)).toBe(0);
   });
 
-  test("placement-mode tabs: appear on selection, hidden when deselected", async ({
+  test('"Keep on ground" toggle: appears on selection, hidden when deselected', async ({
     page,
   }) => {
     await openApp(page);
 
     const groundBtn = page.getByRole("button", { name: "Keep on ground" });
+    // The removed "Center on support" toggle must no longer exist.
     const centerBtn = page.getByRole("button", { name: "Center on support" });
 
-    // Nothing selected → the tabs are hidden.
+    // Nothing selected → the toggle is hidden.
     await expect(groundBtn).toBeHidden();
-    await expect(centerBtn).toBeHidden();
+    await expect(centerBtn).toHaveCount(0);
 
-    // Place and select a tower → the tabs appear.
+    // Place and select a tower → the toggle appears (center-on-support never does).
     await page.getByRole("button", { name: "Tower" }).click();
     await clickCanvasCenter(page);
     await expect.poll(() => pieceCount(page)).toBe(1);
@@ -766,18 +767,16 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     await expect.poll(() => selectedId(page)).not.toBeNull();
 
     await expect(groundBtn).toBeVisible();
-    await expect(centerBtn).toBeVisible();
-    // Both default off.
+    await expect(centerBtn).toHaveCount(0);
     await expect(groundBtn).toHaveAttribute("aria-pressed", "false");
-    await expect(centerBtn).toHaveAttribute("aria-pressed", "false");
 
-    // Deselect (click empty ground) → the tabs hide again.
+    // Deselect (click empty ground) → the toggle hides again.
     await clickCanvasAt(page, 40, 40);
     await expect.poll(() => selectedId(page)).toBeNull();
     await expect(groundBtn).toBeHidden();
   });
 
-  test("placement-mode tabs: mutually exclusive and persist across reload", async ({
+  test('"Keep on ground" toggle: toggles and persists across reload', async ({
     page,
   }) => {
     const mode = () =>
@@ -785,7 +784,7 @@ test.describe("Castle Builder — phases 1a–1b", () => {
 
     await openApp(page);
 
-    // Place + select a tower so the tabs are visible.
+    // Place + select a tower so the toggle is visible.
     await page.getByRole("button", { name: "Tower" }).click();
     await clickCanvasCenter(page);
     await page.getByRole("button", { name: "Select" }).click();
@@ -793,23 +792,16 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     await expect.poll(() => selectedId(page)).not.toBeNull();
 
     const groundBtn = page.getByRole("button", { name: "Keep on ground" });
-    const centerBtn = page.getByRole("button", { name: "Center on support" });
 
     // Turn "Keep on ground" on.
     await groundBtn.click();
     await expect(groundBtn).toHaveAttribute("aria-pressed", "true");
     expect(await mode()).toBe("groundOnly");
 
-    // Turning "Center on support" on turns the first one off (mutual exclusivity).
-    await centerBtn.click();
-    await expect(centerBtn).toHaveAttribute("aria-pressed", "true");
-    await expect(groundBtn).toHaveAttribute("aria-pressed", "false");
-    expect(await mode()).toBe("centerOnSupport");
-
     // The pref survives a reload (it is NOT part of the design's undo history).
     await page.reload();
     await page.waitForFunction(() => Boolean((window as any).__CASTLE_E2E__));
-    expect(await mode()).toBe("centerOnSupport");
+    expect(await mode()).toBe("groundOnly");
   });
 
   test("placement-mode: ground-only keeps a dragged piece on the ground", async ({
@@ -839,107 +831,87 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect(b.base).toBe(0); // stayed on the ground, never seated on tower A's top
   });
 
-  test("placement-mode: center-on-support centers a dragged piece on its support", async ({
+  test('"Place on top": places A on B (base = B top, anchor = B center), stays selected, one undo', async ({
     page,
   }) => {
     await openApp(page);
 
-    const { ids, anchor, top } = await page.evaluate(() => {
+    const { ids, bPos, bTop } = await page.evaluate(() => {
       const api = (window as any).__CASTLE_E2E__;
       const a = api.getState().addTower({ position: { x: 3, y: -2 }, base: 0 });
-      const b = api.getState().addTower({ position: { x: 50, y: 50 }, base: 0 });
-      api.getState().selectPiece(b);
-      api.getState().setPlacementMode("centerOnSupport");
-      const lower = api.getPieces().find((p: any) => p.id === a);
-      return { ids: { a, b }, anchor: lower.position, top: lower.base + lower.height };
+      const b = api.getState().addTower({ position: { x: 20, y: 12 }, base: 0 });
+      const pb = api.getPieces().find((p: any) => p.id === b);
+      api.getState().selectPiece(a);
+      return { ids: { a, b }, bPos: pb.position, bTop: pb.base + pb.height };
     });
     await expect.poll(() => pieceCount(page)).toBe(2);
 
-    // Drop B inside A's footprint but OFF its center.
-    await page.evaluate((id) => {
-      const api = (window as any).__CASTLE_E2E__;
-      api.getState().beginTransient();
-      api.getState().setPiecePositionTransient(id, { x: 3.5, y: -1.5 });
-      api.getState().commitTransient();
+    // Arm "Place on top" with the real panel button (piece A is selected).
+    const placeBtn = page.getByRole("button", { name: /Place on top of/ });
+    await expect(placeBtn).toBeVisible();
+    await placeBtn.click();
+    await expect(page.locator("[data-place-on-top]")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // Click piece B (the target) → A seats on B's top, centered on B, stays selected.
+    await page.evaluate((targetId) => {
+      (window as any).__CASTLE_E2E__.getState().placeOnTopTarget(targetId);
     }, ids.b);
 
-    const b = (await pieces(page)).find((p) => p.id === ids.b);
-    expect(b.position).toEqual(anchor); // XZ centered on the supporting piece
-    expect(b.base).toBeCloseTo(top, 6); // height still from face-attach
-    // Regression guard for the reported bug: it must RISE to the support top,
-    // not stay on the ground like ground-only.
-    expect(b.base).not.toBe(0);
+    let a = (await pieces(page)).find((p) => p.id === ids.a);
+    expect(a.position).toEqual(bPos); // anchor centered on B
+    expect(a.base).toBeCloseTo(bTop, 6); // base seated on B's top
+    expect(a.base).not.toBe(0); // rose off the ground
+    expect(await selectedId(page)).toBe(ids.a); // still selected
+    // The action ended (disarmed).
+    await expect(page.locator("[data-place-on-top]")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    // One undo reverses it (A back on the ground at its original spot).
+    await page.evaluate(() => (window as any).__CASTLE_E2E__.getState().undo());
+    a = (await pieces(page)).find((p) => p.id === ids.a);
+    expect(a.position).toEqual({ x: 3, y: -2 });
+    expect(a.base).toBe(0);
   });
 
-  test("placement-mode: with the Center-on-support button on, EITHER placed tower seats on top of the other", async ({
+  test('"Place on top": Esc while armed cancels with no change (selection unchanged)', async ({
     page,
   }) => {
     await openApp(page);
 
-    // Two towers placed apart on the ground — neither overlaps the other yet.
-    const { ids, aPos, bPos, aTop, bTop } = await page.evaluate(() => {
+    const ids = await page.evaluate(() => {
       const api = (window as any).__CASTLE_E2E__;
       const a = api.getState().addTower({ position: { x: 3, y: -2 }, base: 0 });
-      const b = api.getState().addTower({ position: { x: 12, y: 8 }, base: 0 });
-      api.getState().selectPiece(a); // select one so the placement-mode tabs show
-      const pa = api.getPieces().find((p: any) => p.id === a);
-      const pb = api.getPieces().find((p: any) => p.id === b);
-      return {
-        ids: { a, b },
-        aPos: pa.position,
-        bPos: pb.position,
-        aTop: pa.base + pa.height, // world Y of tower A's top
-        bTop: pb.base + pb.height, // world Y of tower B's top
-      };
+      const b = api.getState().addTower({ position: { x: 20, y: 12 }, base: 0 });
+      api.getState().selectPiece(a);
+      return { a, b };
     });
     await expect.poll(() => pieceCount(page)).toBe(2);
 
-    // Turn the mode on with the real button (visible now that a tower is selected).
-    const centerBtn = page.getByRole("button", { name: "Center on support" });
-    await expect(centerBtn).toBeVisible();
-    await centerBtn.click();
-    await expect(centerBtn).toHaveAttribute("aria-pressed", "true");
-
-    // Direction 1: drag tower A onto tower B → A rises to B's top and centers on B.
-    await page.evaluate(
-      ({ id, target }) => {
-        const api = (window as any).__CASTLE_E2E__;
-        api.getState().beginTransient();
-        // Land inside B's footprint but OFF its center.
-        api.getState().setPiecePositionTransient(id, { x: target.x + 0.5, y: target.y - 0.5 });
-        api.getState().commitTransient();
-      },
-      { id: ids.a, target: bPos },
+    const placeBtn = page.getByRole("button", { name: /Place on top of/ });
+    await placeBtn.click();
+    await expect(page.locator("[data-place-on-top]")).toHaveAttribute(
+      "aria-pressed",
+      "true",
     );
 
-    let a = (await pieces(page)).find((p) => p.id === ids.a);
-    expect(a.position).toEqual(bPos); // centered on B
-    expect(a.base).toBeCloseTo(bTop, 6); // seated on B's top
-    expect(a.base).not.toBe(0); // rose off the ground
+    // Esc cancels the armed action; selection stays on A and nothing moves.
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-place-on-top]")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(await selectedId(page)).toBe(ids.a); // selection unchanged
 
-    // Undo → A returns to the ground at its original spot (the mode is a UI pref,
-    // untouched by undo — direction 2 still runs under center-on-support).
-    await page.evaluate(() => (window as any).__CASTLE_E2E__.getState().undo());
-    a = (await pieces(page)).find((p) => p.id === ids.a);
-    expect(a.position).toEqual(aPos);
+    const a = (await pieces(page)).find((p) => p.id === ids.a);
+    expect(a.position).toEqual({ x: 3, y: -2 });
     expect(a.base).toBe(0);
-
-    // Direction 2: the OTHER tower — drag B onto A → B rises to A's top, centers on A.
-    await page.evaluate(
-      ({ id, target }) => {
-        const api = (window as any).__CASTLE_E2E__;
-        api.getState().beginTransient();
-        api.getState().setPiecePositionTransient(id, { x: target.x + 0.5, y: target.y - 0.5 });
-        api.getState().commitTransient();
-      },
-      { id: ids.b, target: aPos },
-    );
-
-    const bPiece = (await pieces(page)).find((p) => p.id === ids.b);
-    expect(bPiece.position).toEqual(aPos); // centered on A
-    expect(bPiece.base).toBeCloseTo(aTop, 6); // seated on A's top
-    expect(bPiece.base).not.toBe(0);
   });
+
 
   test("New Castle: Esc dismisses the dialog with no change", async ({ page }) => {
     await openApp(page);

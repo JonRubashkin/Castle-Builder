@@ -29,6 +29,7 @@ import {
   type WallRun,
 } from "./schema";
 import { resolveSupportAt, type PlacementMode } from "../geometry/support";
+import { resolvePlaceOnTop } from "../geometry/placeOnTop";
 import { groundHeightAt } from "../geometry/ground";
 import { snapHorizontalVec2 } from "../geometry/grid";
 import { loadPlacementMode, savePlacementMode } from "../persistence/storage";
@@ -73,10 +74,15 @@ export interface StoreState {
   tool: Tool;
   moatShape: MoatShape;
   // The placement mode for the MOVE/DRAG path — a persisted UI pref (NOT part of
-  // the Design, NOT in undo history). The two toggle tabs are mutually exclusive,
-  // modeled as one enum: "normal" (both off) / "groundOnly" / "centerOnSupport".
+  // the Design, NOT in undo history). Modeled as one enum: "normal" (the default
+  // face-attach rule) / "groundOnly" (the "Keep on ground" toggle).
   placementMode: PlacementMode;
   selectedId: string | null;
+  // Whether the one-shot "Place on top" action is armed. A transient UI flag (NOT
+  // part of the Design, NOT persisted, NOT in undo history): while armed, the next
+  // click on a valid target piece seats the SELECTED piece on that target's top
+  // (see placeOnTopTarget) instead of selecting it.
+  placeOnTopArmed: boolean;
   history: History;
   // A monotonic boot counter bumped by newDesign(). The editor tree is keyed on
   // it (<Editor key={bootNonce} />) so a "New Castle" reset fully REMOUNTS a clean
@@ -88,21 +94,23 @@ export interface StoreState {
   // non-null, piece mutations are previewed live without touching history; the
   // snapshot is what gets pushed to `past` when the interaction commits.
   pendingSnapshot: Design | null;
-  // Center-on-support defers its XZ anchor snap to the DROP (commitTransient),
-  // not the live drag. During a gizmo drag the mesh's group is driven imperatively
-  // by TransformControls from the pointer; moving the anchor mid-drag would fight
-  // that (two writers on one object → jitter, the piece never settles on top). So
-  // the live move keeps the anchor tracking the pointer (height still resolved) and
-  // stashes the target center here; commitTransient applies it when the drag ends.
-  pendingCenterSnap: { id: string; position: Vec2; end?: Vec2 } | null;
 
   // --- tool / selection ---
   setTool: (tool: Tool) => void;
   setMoatShape: (shape: MoatShape) => void;
-  // Set the placement mode. Because it is a single enum, setting one value
-  // inherently clears the other (the two toggles' mutual exclusivity). Persisted.
+  // Set the placement mode ("normal" / "groundOnly"). Persisted.
   setPlacementMode: (mode: PlacementMode) => void;
   selectPiece: (id: string | null) => void;
+
+  // --- "Place on top" one-shot action ---
+  // Arm the action (only meaningful with a piece selected); cancel disarms it.
+  // placeOnTopTarget resolves a click on `targetId` while armed: it seats the
+  // selected piece on the target's top (ONE undoable step, selection kept), or
+  // cancels (clicking self / no selection), or is a no-op that stays armed
+  // (clicking an invalid target — a moat or a ramp).
+  armPlaceOnTop: () => void;
+  cancelPlaceOnTop: () => void;
+  placeOnTopTarget: (targetId: string) => void;
 
   // --- committed mutations (each pushes one history entry) ---
   addTower: (input: { position: Vec2; base: number }) => string;
@@ -188,9 +196,9 @@ export const useStore = create<StoreState>((set, get) => {
     moatShape: "ring",
     placementMode: loadPlacementMode(), // hydrate the persisted pref on boot
     selectedId: null,
+    placeOnTopArmed: false,
     history: { past: [], future: [] },
     pendingSnapshot: null,
-    pendingCenterSnap: null,
     bootNonce: 0,
 
     setTool: (tool) => set({ tool }),
@@ -200,7 +208,51 @@ export const useStore = create<StoreState>((set, get) => {
       set({ placementMode });
     },
     selectPiece: (id) =>
-      set((state) => ({ selectedId: selectionStillValid(state.design, id) })),
+      // Selecting (or deselecting) also disarms the one-shot "Place on top".
+      set((state) => ({
+        selectedId: selectionStillValid(state.design, id),
+        placeOnTopArmed: false,
+      })),
+
+    armPlaceOnTop: () => {
+      if (get().selectedId) set({ placeOnTopArmed: true });
+    },
+
+    cancelPlaceOnTop: () => set({ placeOnTopArmed: false }),
+
+    placeOnTopTarget: (targetId) => {
+      const state = get();
+      if (!state.placeOnTopArmed) return;
+      const movingId = state.selectedId;
+      // Clicking self, or an unresolvable selection, cancels (disarms).
+      if (!movingId || targetId === movingId) {
+        set({ placeOnTopArmed: false });
+        return;
+      }
+      const moving = state.design.pieces.find((p) => p.id === movingId);
+      const target = state.design.pieces.find((p) => p.id === targetId);
+      if (!moving || !target) {
+        set({ placeOnTopArmed: false });
+        return;
+      }
+      const result = resolvePlaceOnTop(moving, target);
+      // Invalid target (a moat / a ramp — no flat top) → no-op that STAYS armed,
+      // so the user can pick a real target without re-arming.
+      if (!result) return;
+      // ONE undoable step: seat the moving piece on the target's top, centered.
+      commit((design) => {
+        const piece = design.pieces.find((p) => p.id === movingId);
+        if (piece) {
+          piece.position = { ...result.position };
+          piece.base = result.base;
+          if (result.end && "end" in piece && piece.end) piece.end = { ...result.end };
+        }
+        return design;
+      });
+      // The moved piece stays selected (commit preserves a still-valid selection);
+      // the action ends.
+      set({ placeOnTopArmed: false });
+    },
 
     addTower: ({ position, base }) => {
       const id = nextId();
@@ -385,7 +437,7 @@ export const useStore = create<StoreState>((set, get) => {
     beginTransient: () => {
       // Only one interaction at a time; capture the pre-interaction snapshot.
       if (get().pendingSnapshot === null) {
-        set({ pendingSnapshot: clone(get().design), pendingCenterSnap: null });
+        set({ pendingSnapshot: clone(get().design) });
       }
     },
 
@@ -417,40 +469,14 @@ export const useStore = create<StoreState>((set, get) => {
           // truth — no hardcoded ground-y and no parallel placement logic; the
           // active placement mode is read HERE and passed straight through.
           // (Walls resolve at the start anchor, `position`.)
-          let pendingCenterSnap: StoreState["pendingCenterSnap"] = null;
           if (piece.kind === "moat") {
-            // A moat is inherently ground-only; the toggles don't change that.
+            // A moat is inherently ground-only; the toggle doesn't change that.
             piece.base = groundOnlyBase(piece.position);
           } else {
             const others = design.pieces.filter((p) => p.id !== id);
-            // Pass the moved piece so centerOnSupport can measure footprint
-            // overlap (it latches as soon as the piece is >50% over a support or
-            // its center aligns, not only when the anchor is over the support).
-            const support = resolveSupportAt(piece.position, others, state.placementMode, piece);
-            piece.base = support.base;
-            // Center-on-support: the anchor must snap onto the supporting piece's
-            // center (its own footprint anchor — never a separately computed one),
-            // but NOT during the live drag: the mesh's group is driven imperatively
-            // by TransformControls from the pointer, so moving the anchor here would
-            // fight it (jitter, the piece never lands on top). Instead keep the
-            // anchor tracking the pointer (the height/base above already resolved
-            // via face-attach) and stash the target center; commitTransient applies
-            // it on drop. A two-point piece (a wall run) shifts both endpoints
-            // rigidly by the same delta so it keeps its shape.
-            if (support.center) {
-              const snap: NonNullable<StoreState["pendingCenterSnap"]> = {
-                id,
-                position: { ...support.center },
-              };
-              if ("end" in piece && piece.end) {
-                const dx = support.center.x - piece.position.x;
-                const dy = support.center.y - piece.position.y;
-                snap.end = { x: piece.end.x + dx, y: piece.end.y + dy };
-              }
-              pendingCenterSnap = snap;
-            }
+            piece.base = resolveSupportAt(piece.position, others, state.placementMode).base;
           }
-          return { design, pendingCenterSnap };
+          return { design };
         }
         return { design };
       });
@@ -475,37 +501,16 @@ export const useStore = create<StoreState>((set, get) => {
     commitTransient: () => {
       const snapshot = get().pendingSnapshot;
       if (snapshot === null) return;
-      set((state) => {
-        // Apply a deferred center-on-support snap now that the drag has ended
-        // (see pendingCenterSnap): the anchor jumps onto the support's center
-        // without fighting the live gizmo. The height was already resolved during
-        // the drag; here we only move the XZ anchor (and, for a two-point piece,
-        // its far endpoint rigidly).
-        let design = state.design;
-        const snap = state.pendingCenterSnap;
-        if (snap) {
-          design = clone(design);
-          const piece = design.pieces.find((p) => p.id === snap.id);
-          if (piece) {
-            piece.position = { ...snap.position };
-            if (snap.end && "end" in piece && piece.end) {
-              piece.end = { ...snap.end };
-            }
-          }
-        }
-        return {
-          design,
-          history: pushPast(state.history, snapshot),
-          pendingSnapshot: null,
-          pendingCenterSnap: null,
-        };
-      });
+      set((state) => ({
+        history: pushPast(state.history, snapshot),
+        pendingSnapshot: null,
+      }));
     },
 
     cancelTransient: () => {
       const snapshot = get().pendingSnapshot;
       if (snapshot === null) return;
-      set({ design: snapshot, pendingSnapshot: null, pendingCenterSnap: null });
+      set({ design: snapshot, pendingSnapshot: null });
     },
 
     undo: () => {
@@ -521,7 +526,7 @@ export const useStore = create<StoreState>((set, get) => {
           },
           selectedId: selectionStillValid(prev, state.selectedId),
           pendingSnapshot: null,
-          pendingCenterSnap: null,
+          placeOnTopArmed: false,
         };
       });
     },
@@ -539,7 +544,7 @@ export const useStore = create<StoreState>((set, get) => {
           },
           selectedId: selectionStillValid(next, state.selectedId),
           pendingSnapshot: null,
-          pendingCenterSnap: null,
+          placeOnTopArmed: false,
         };
       });
     },
@@ -553,7 +558,7 @@ export const useStore = create<StoreState>((set, get) => {
         selectedId: null,
         history: { past: [], future: [] },
         pendingSnapshot: null,
-        pendingCenterSnap: null,
+        placeOnTopArmed: false,
       }),
 
     newDesign: () =>
@@ -563,7 +568,7 @@ export const useStore = create<StoreState>((set, get) => {
         selectedId: null,
         history: { past: [], future: [] },
         pendingSnapshot: null,
-        pendingCenterSnap: null,
+        placeOnTopArmed: false,
         // Bump the boot counter → the editor tree remounts clean (clearing any
         // component-local in-progress placement/drag state too).
         bootNonce: state.bootNonce + 1,

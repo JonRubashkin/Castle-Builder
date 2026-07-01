@@ -3,6 +3,7 @@ import { Scene } from "./components/preview/Scene";
 import { Toolbar } from "./components/ui/Toolbar";
 import { PiecePanel } from "./components/ui/PiecePanel";
 import { PlacementModeTabs } from "./components/ui/PlacementModeTabs";
+import { PlaceOnTopHint } from "./components/ui/PlaceOnTopHint";
 import { FileBar } from "./components/ui/FileBar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAutosave } from "./hooks/useAutosave";
@@ -28,6 +29,8 @@ function Editor() {
           {/* Placement-mode toggle tabs — right side of the viewport, shown only
               while a piece is selected. */}
           <PlacementModeTabs />
+          {/* A banner shown while the "Place on top" one-shot is armed. */}
+          <PlaceOnTopHint />
         </main>
         <PiecePanel />
       </div>

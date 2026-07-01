@@ -144,6 +144,14 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
     if (tool !== "select") return;
     if (!isCleanClick(e.nativeEvent.clientX, e.nativeEvent.clientY)) return;
     e.stopPropagation();
+    // While the one-shot "Place on top" is armed, a click on a piece TARGETS it
+    // (seat the selected piece on this one) instead of selecting it. An invalid
+    // target (a moat / a ramp) is a no-op that stays armed; clicking self cancels.
+    const store = useStore.getState();
+    if (store.placeOnTopArmed) {
+      store.placeOnTopTarget(piece.id);
+      return;
+    }
     selectPiece(piece.id);
   };
 

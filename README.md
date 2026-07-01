@@ -54,8 +54,9 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Ramp tool** | A **connection**, placed with **two clicks**: click a **bottom** (on the ground, or on a flat piece top via face-attach), then a **top surface** (a tower / gatehouse / wall top). The ramp computes its own `rise` / `run` / heading to **literally span** the two points — a live preview shows the resulting rise/run while you aim. The heading is **exact** (the ramp aims precisely at the connection — **no 15° rotation snap**, unlike every other piece). The connection is literal (no slope-smartness), so a steep result is honest feedback; tune it in the panel afterward. If the **top click misses a real surface** (empty ground), it falls back to a **tunable default ramp** from the bottom anchor instead of getting stuck. `Esc` cancels. A ramp can sit **on** flat tops, but **nothing face-attaches onto a ramp** (its top is a slope). |
 | **Face-attach** | With the tower / gatehouse / wall / **gate** / **ramp** tool, place over an existing piece's footprint: the new piece (or a ramp's **bottom** anchor) seats on that piece's **top** (its stored base = the lower piece's top), instead of on the ground. A wall seats at its **start** anchor's support height. (The moat is exempt — it always seats on the ground; and a ramp is never a face-attach **target**.) |
 | **Select tool** | Click a piece to select it; click empty ground to deselect. |
-| Move a selected piece | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**, subject to the **placement-mode toggles** below. For a wall, the gizmo moves the **whole wall** (both endpoints together). |
-| **Placement-mode toggles** | Two toggle tabs on the **right of the viewport**, shown **while a piece is selected** (hidden otherwise). **Keep on ground** — a moved piece ignores face-attach and always seats on the ground (never climbs onto other pieces). **Center on support** — a moved piece **latches** onto another piece with their centers aligned as soon as it is *mostly there* — **more than 50% of the moved piece overlaps** the support, **or their centers align** — even before the anchor is fully over it. On drop the piece jumps to that support's center and rises to its top (the center snap is applied at drop, not mid-drag, so it never fights the gizmo). The two are **mutually exclusive** (turning one on turns the other off — three modes total: normal / ground-only / center-and-stack). Both **default off**, and each **persists until you turn it off** (a saved preference — it is **not** part of the design and **not** in undo history). They apply to the **move/drag** path (initial placement of a new piece is unaffected). |
+| Move a selected piece | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**, subject to the **Keep on ground** toggle below. For a wall, the gizmo moves the **whole wall** (both endpoints together). |
+| **Keep on ground** | A toggle tab on the **right of the viewport**, shown **while a piece is selected** (hidden otherwise). When **on**, a moved piece ignores face-attach and always seats on the ground (never climbs onto other pieces); when **off** (the default), moving uses the normal face-attach rule. It **persists until you turn it off** (a saved preference — **not** part of the design and **not** in undo history) and applies to the **move/drag** path (initial placement of a new piece is unaffected). |
+| **Place on top of…** | A button in a selected piece's properties panel (every piece **except the moat**). Click it to **arm** a one-shot action (a banner + crosshair prompt you to click a target); the **next click on another piece** seats the selected piece on **that piece's top**, centered on it (a wall recenters both endpoints), as **one undo step** — the piece stays selected and the action ends. Overhang is fine (a larger piece just overhangs). **Excluded targets: the moat and ramps** (no flat top) — clicking one stays armed. `Esc`, a click on empty ground, or clicking the selected piece itself **cancels** with the selection unchanged. |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (it **snaps to a nearby tower / gatehouse anchor**, shown by a snap ring, else the 0.1 m grid; one undo step). Start/End coordinates are also editable as number fields in the panel (the precise/keyboard path — plain grid, no anchor snap). |
 | Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim). Each piece carries a **material** (solid color or a stone / brick / thatch / water pattern). |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
@@ -76,10 +77,12 @@ selection, undo/redo history, and any in-progress placement, and remounts the
 editor tree clean (a `bootNonce` key) so no stale reference to a deleted piece can
 linger.
 
-The **placement-mode toggles** (Keep on ground / Center on support) are a saved
-**UI preference**, stored in a separate `localStorage` slot — **not** part of the
-design document and **not** in undo history. They survive reload independently of
-the castle, and **New Castle** does not reset them.
+The **Keep on ground** toggle is a saved **UI preference**, stored in a separate
+`localStorage` slot — **not** part of the design document and **not** in undo
+history. It survives reload independently of the castle, and **New Castle** does
+not reset it. (The **Place on top** action is a transient one-shot — not saved,
+not in undo history for the arming itself; only the resulting placement is one
+undoable step.)
 
 ## Coordinates & units
 
@@ -104,7 +107,8 @@ src/
   store/               Zustand store, schema v1, undo/redo, ?e2e=1 test accessor
   persistence/         autosave + JSON export/import + schema validation
   components/preview/   the R3F scene, ground/grid, pieces, gizmo, placement
-  components/ui/        toolbar, properties panel, placement-mode toggle tabs,
+  components/ui/        toolbar, properties panel (+ Place-on-top action),
+                       Keep-on-ground toggle, place-on-top hint banner,
                        file/export bar, New Castle button + confirmation dialog
   hooks/                keyboard shortcuts, autosave wiring
 scripts/               CI guard scripts (ground-seam, e2e-no-canvas)
@@ -138,12 +142,14 @@ Build command `npm run build`, output `dist/`.
   op, with the 100-entry cap and eviction), the **`newDesign` reset** (fresh empty
   doc + selection/history/pending-snapshot cleared + `bootNonce` bumped), the
   procedural-material logic (opaque output, pattern ids), the **placement-mode**
-  support resolution (ground-only forces the ground even over a surface;
-  center-on-support latches onto a support and reports its center XZ + top as soon
-  as the moved piece is >50% overlapped or its center aligns — its own
-  `footprintOverlap` helper is unit-tested; normal is unchanged) and its
-  **mode-aware move path** + the store action's
-  **mutual exclusivity**, and schema validation.
+  support resolution (ground-only forces the ground even over a surface; normal is
+  unchanged) and its **mode-aware move path**, the **"Place on top" resolver**
+  (`resolvePlaceOnTop`: base = the target's flat top via the shared `flatTopWorldY`
+  helper — asserted to be the surface height, not the ground — anchor = the
+  target's center, a two-point wall recenters both endpoints, overhang still
+  centers, and the moat/ramp are excluded targets) plus its **store action**
+  (arm → target → one undoable placement, stays selected; invalid-target no-op;
+  self-click cancel), and schema validation.
 - E2E tests cover clean boot, placing a tower, select + delete, undo/redo,
   autosave surviving a reload, toggling crenellations + changing material,
   face-attach, placing a gatehouse (edit/rotate/delete), drawing a wall with two
@@ -155,10 +161,11 @@ Build command `npm run build`, output `dist/`.
   the ramp's **empty-top fallback** default ramp, toggling ramp/stair + editing +
   deleting a ramp, a **mixed castle of all six kinds persisting across a
   reload**, **wall-endpoint anchor snapping** (an endpoint over a tower latches to
-  its anchor; far endpoints grid-snap), the **placement-mode toggles** (appear on
-  selection / hidden when deselected; mutually exclusive; persist across reload;
-  ground-only keeps a dragged piece on the ground; center-on-support latches a
-  dragged piece's XZ onto its support when mostly overlapped), and **New Castle** (Cancel/`Esc` keep the
+  its anchor; far endpoints grid-snap), the **Keep-on-ground toggle** (appears on
+  selection / hidden when deselected; persists across reload; keeps a dragged piece
+  on the ground), the **"Place on top" action** (arm from the panel, click a target
+  → the piece seats on the target's top with centers aligned, stays selected, one
+  undo reverses it; `Esc` while armed cancels with no change), and **New Castle** (Cancel/`Esc` keep the
   design; confirm clears it + selection + undo history and survives a reload as
   empty). They read app state
   through a test-only accessor exposed at `window.__CASTLE_E2E__` when the page is

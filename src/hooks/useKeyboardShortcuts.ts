@@ -35,6 +35,12 @@ export function useKeyboardShortcuts(): void {
         return;
       }
       if (e.key === "Escape") {
+        // While "Place on top" is armed, Esc cancels the action and leaves the
+        // selection unchanged (it does NOT deselect).
+        if (store.placeOnTopArmed) {
+          store.cancelPlaceOnTop();
+          return;
+        }
         store.cancelTransient();
         store.selectPiece(null);
         return;

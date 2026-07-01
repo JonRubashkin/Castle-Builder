@@ -283,6 +283,12 @@ export function GroundInteraction() {
       return;
     }
 
+    // While "Place on top" is armed, a click on empty ground CANCELS the action
+    // (selection unchanged) rather than deselecting.
+    if (useStore.getState().placeOnTopArmed) {
+      useStore.getState().cancelPlaceOnTop();
+      return;
+    }
     // Select tool: clicking empty ground deselects.
     useStore.getState().selectPiece(null);
   };
