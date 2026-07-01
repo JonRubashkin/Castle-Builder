@@ -32,6 +32,7 @@ import {
   chargeAtPoint,
   previewPixelToFlagCoord,
 } from "../../flags/editorPicking";
+import { FlagLibraryPanel } from "./FlagLibraryPanel";
 
 const PREVIEW_HEIGHT = 220; // px — the preview canvas's intrinsic height
 
@@ -337,6 +338,11 @@ export function FlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void 
     structuredClone(flag.design),
   );
   const [selected, setSelected] = useState<number | null>(null);
+  // Which saved-library entry the working design was applied FROM (if any). Set
+  // when Apply-from-library is used (or after a Save), enabling the later
+  // Overwrite choice. It tracks the LIBRARY relationship, not the placed flag —
+  // the flag keeps its own embedded copy regardless.
+  const [sourceEntryId, setSourceEntryId] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<number | null>(null); // index of the charge being dragged
@@ -477,6 +483,19 @@ export function FlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void 
             <p className="flag-editor__hint">
               Drag a charge on the preview to reposition it.
             </p>
+
+            {/* The saved-flags library: save the working design (overwrite-or-
+                save-as) and apply saved designs (copied into the working copy). */}
+            <FlagLibraryPanel
+              workingDesign={design}
+              sourceEntryId={sourceEntryId}
+              onApply={(applied, sourceId) => {
+                setDesign(applied); // a COPY into the working copy — no live link
+                setSelected(null);
+                setSourceEntryId(sourceId);
+              }}
+              onSourceChange={setSourceEntryId}
+            />
           </div>
 
           {/* Right: the layer list + per-layer controls. */}

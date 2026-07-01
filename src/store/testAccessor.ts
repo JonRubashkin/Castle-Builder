@@ -9,6 +9,7 @@ export interface CastleE2EApi {
   getPieces: () => StoreState["design"]["pieces"];
   getPieceCount: () => number;
   getSelectedId: () => string | null;
+  getFlagLibrary: () => StoreState["flagLibrary"];
   subscribe: (listener: () => void) => () => void;
 }
 
@@ -30,6 +31,7 @@ export function installE2EAccessor(): void {
     getPieces: () => useStore.getState().design.pieces,
     getPieceCount: () => useStore.getState().design.pieces.length,
     getSelectedId: () => useStore.getState().selectedId,
+    getFlagLibrary: () => useStore.getState().flagLibrary,
     subscribe: (listener) => useStore.subscribe(listener),
   };
   window.__CASTLE_E2E__ = api;
