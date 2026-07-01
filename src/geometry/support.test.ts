@@ -212,13 +212,32 @@ describe("resolveSupportAt — the placement modes", () => {
 
   it("centerOnSupport: reports the supporting piece's center XZ + the surface top", () => {
     const lower = tower({ id: "lower", position: { x: 3, y: -2 }, base: 0, height: 8 });
-    // Anchor lands inside the tower footprint but off its center.
-    const r = resolveSupportAt({ x: 3.5, y: -1.5 }, [lower], "centerOnSupport");
+    const anchor = { x: 3.5, y: -1.5 }; // inside the tower footprint, off its center
+    const r = resolveSupportAt(anchor, [lower], "centerOnSupport");
     expect(r.base).toBe(8); // height still comes from face-attach
     expect(r.onSurface).toBe(true);
     expect(r.surfaceId).toBe("lower");
     // Center = the supporting piece's own anchor (its footprint source of truth).
     expect(r.center).toEqual({ x: 3, y: -2 });
+  });
+
+  it("centerOnSupport rises to the SURFACE TOP, not the ground (the reported bug)", () => {
+    // Regression guard: centerOnSupport must NOT short-circuit to the ground like
+    // groundOnly. Over a supporting piece it must resolve the SAME surface-top
+    // height that normal does — the piece rises onto the surface AND centers.
+    const lower = tower({ id: "lower", position: { x: 3, y: -2 }, base: 0, height: 8 });
+    const anchor = { x: 3.5, y: -1.5 };
+    const center = resolveSupportAt(anchor, [lower], "centerOnSupport");
+    const normal = resolveSupportAt(anchor, [lower], "normal");
+    const ground = resolveSupportAt(anchor, [lower], "groundOnly");
+    // Same height as normal — the surface top, explicitly NOT the ground.
+    expect(center.base).toBe(normal.base);
+    expect(center.base).toBe(8);
+    expect(center.base).not.toBe(ground.base); // ground short-circuits to 0
+    expect(center.base).toBeGreaterThan(0);
+    // ...and, unlike normal, it additionally reports the supporting center.
+    expect(center.center).toEqual({ x: 3, y: -2 });
+    expect(normal.center).toBeNull();
   });
 
   it("centerOnSupport over open ground: no surface → no center (stays on ground)", () => {

@@ -530,9 +530,17 @@ hydrated into the store on boot, survive reload, and are untouched by `newDesign
   footprint source of truth, never a separately computed center), `normal` is
   unchanged. The mode is **read in the move path**: the store's
   `setPiecePositionTransient` passes `state.placementMode` straight into
-  `resolveSupportAt`; when a `center` comes back it snaps the moved piece's anchor
+  `resolveSupportAt`; when a `center` comes back the moved piece's anchor snaps
   onto it (height still from face-attach; a two-point wall shifts both endpoints
-  rigidly). The moat stays inherently ground-only regardless of the toggles.
+  rigidly). **The center snap is DEFERRED to the drop (`commitTransient`), not
+  applied mid-drag** — during a live gizmo drag the mesh's group is driven
+  imperatively by `TransformControls` from the pointer, so moving the anchor
+  mid-drag would fight it (two writers on one object → jitter, the piece never
+  lands on top). So the live move keeps the anchor tracking the pointer (only the
+  base/height resolves live) and stashes the target center in `pendingCenterSnap`;
+  `commitTransient` applies it when the drag ends. `normal`/`groundOnly` never move
+  the anchor, so they never had this conflict. The moat stays inherently
+  ground-only regardless of the toggles.
 - **Scoped to the move/drag path** (a selected piece being dragged) — initial
   placement of a NEW piece is deliberately unaffected (the tabs only show with a
   selection, and the placement path calls `resolveSupportAt` with the default
