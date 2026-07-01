@@ -334,6 +334,39 @@ describe("store: placement-mode toggles (persisted pref, mode-aware move path)",
     expect(tower(groundMoverId).base).toBe(groundY);
   });
 
+  it("centerOnSupport: below the 50% threshold it RISES but does NOT center (eager rule)", () => {
+    // Drag the mover so its anchor sits inside the support footprint but LESS than
+    // half of it overlaps (two radius-2 towers ~1.7 m apart ≈ 48% overlap). The
+    // eager rule requires >50% (or aligned centers), so it face-attaches (rises)
+    // yet keeps the raw XZ — it must NOT snap to the support center.
+    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
+    const moverId = useStore.getState().addTower(at(50, 50));
+    const lower = tower(lowerId);
+    useStore.getState().setPlacementMode("centerOnSupport");
+    useStore.getState().selectPiece(moverId);
+    useStore.getState().beginTransient();
+    useStore.getState().setPiecePositionTransient(moverId, { x: 3, y: -0.3 });
+    useStore.getState().commitTransient();
+    // Rose onto the tower (anchor is over its footprint) but stayed off-center.
+    expect(tower(moverId).base).toBe(lower.base + lower.height);
+    expect(tower(moverId).position).toEqual({ x: 3, y: -0.3 });
+  });
+
+  it("centerOnSupport: crossing the 50% threshold latches and centers (eager rule)", () => {
+    // Nudge closer (~0.7 m apart ≈ 80% overlap) → over the 50% threshold → the
+    // piece latches onto the support with their centers aligned.
+    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
+    const moverId = useStore.getState().addTower(at(50, 50));
+    const lower = tower(lowerId);
+    useStore.getState().setPlacementMode("centerOnSupport");
+    useStore.getState().selectPiece(moverId);
+    useStore.getState().beginTransient();
+    useStore.getState().setPiecePositionTransient(moverId, { x: 3.5, y: -1.5 });
+    useStore.getState().commitTransient();
+    expect(tower(moverId).base).toBe(lower.base + lower.height);
+    expect(tower(moverId).position).toEqual({ x: 3, y: -2 }); // centered on the support
+  });
+
   it("centerOnSupport over open ground behaves like normal: seats on ground, no center", () => {
     const moverId = useStore.getState().addTower(at(50, 50));
     useStore.getState().setPlacementMode("centerOnSupport");
