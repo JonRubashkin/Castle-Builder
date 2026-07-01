@@ -456,13 +456,44 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
   wired in `main.tsx`, analogous to the prior project's `#catalog`) renders the
   hardcoded `FLAG_EXAMPLES` (solid, tricolor, quartered, field+charge, busy) plus
   the whole symbol library. It is **not** part of the main app UI.
-- **Embed-vs-library model (settled, built in later slices).** A **placed flag
-  piece embeds its own `FlagDesign`** (the design travels with the piece, so
-  Export/Import of a castle carries its flags). The **saved-flags library** is a
-  separate store of **named** flag designs with **overwrite-or-save-as** semantics
-  (like naming a document); placing from the library **copies** the design into the
-  piece (no live link). The library persists client-side alongside the castle
-  autosave.
+- **Embed-vs-library model (settled, built).** A **placed flag piece embeds its
+  own `FlagDesign`** (the design travels with the piece, so Export/Import of a
+  castle carries its flags). The **saved-flags library (2Fd, built)** is a
+  **separate** store of **named** flag designs with **overwrite-or-save-as**
+  semantics (like naming a document); applying a library design **copies** it into
+  the working design (no live link). The library persists client-side in its **own**
+  `localStorage` slot — NOT part of the castle `Design`, NOT in the castle Export
+  JSON, and **untouched by `newDesign`** (New Castle) — exactly like the
+  placement-mode pref is a separate slot. See "The saved-flags library" below.
+- **The saved-flags library (2Fd, built).** A per-origin palette of named
+  `FlagDesign`s, decoupled from the castle. Pure CRUD lives in `src/flags/library.ts`
+  (`FlagLibraryEntry` = `{ id, name, design, createdAt, modifiedAt }`; `listEntries`
+  / `getEntry` / `saveNewEntry` / `overwriteEntry` / `renameEntry` / `deleteEntry`,
+  each returning a NEW library and **deep-cloning designs in** so a saved entry never
+  shares a reference with the live working copy — copy, not link) plus lenient
+  `sanitizeLibrary` and library-only `flagLibraryToJSON` / `parseFlagLibraryJSON`
+  (all unit-tested). It persists through its own slot
+  (`saveFlagLibrary` / `loadFlagLibrary` in `src/persistence/storage.ts`), is
+  hydrated onto the store's **`flagLibrary`** slice on boot, and every mutation goes
+  through a named store action (`saveFlagToLibrary` → returns the new id /
+  `overwriteFlagLibraryEntry` / `renameFlagLibraryEntry` / `deleteFlagLibraryEntry` /
+  `replaceFlagLibrary`), each persisting the slot. It is **NOT in undo history**
+  (a separate store, like the Keep-on-ground pref) and **`newDesign` leaves it
+  intact** (not listed in the reset). The UI is a panel inside the flag editor
+  (`src/components/ui/FlagLibraryPanel.tsx`): **Save to library** with
+  overwrite-or-save-as (the editor tracks the working design's **source entry id**
+  when applied from the library → Overwrite that entry OR Save as new; a hand-built
+  design only Saves as new — **never a silent overwrite**), and an **Apply** picker
+  listing entries with `renderFlag` **thumbnails** (reusing the renderer — no
+  parallel thumbnail path). Apply COPIES the entry's design into the editor's
+  working copy and records the source id; it commits only on the editor's existing
+  Apply (one coalesced undoable `updateFlagDesign`). Rename (inline) and delete
+  (two-step confirm) manage entries; **deleting an entry does NOT touch any placed
+  flag that already embedded a copy of it**. Because the palette doesn't ride along
+  in a castle export, the panel also offers **Export library / Import library** JSON
+  (its own backup path). The browser-storage disclosure is single-sourced in
+  `src/persistence/disclosure.ts` (`STORAGE_DISCLOSURE`, shown in the bottom bar) and
+  now names the library alongside the castle autosave.
 - **Phase-2F sub-plan (build in order; one slice = one coherent commit):**
   - **2Fa (DONE):** the `FlagDesign` layer-stack model, the symbol library,
     the pure renderer + `flagTexture`, and the `#flags` QA route. **No editor, no
@@ -478,8 +509,12 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
     **drag-on-preview** for charges (pure tested pixel→coord + hit-test). Apply
     commits ONE coalesced undoable edit (`updateFlagDesign`); Cancel/Esc/backdrop
     discard. **No library, no auto-place, no drag-reorder of layers.**
-  - **2Fd:** the **saved-flags library** (named saves, overwrite-or-save-as, its
-    storage) + placing from the library.
+  - **2Fd (DONE — this slice):** the **saved-flags library** — its own persistence
+    slot + pure CRUD (`src/flags/library.ts`), a `flagLibrary` store slice with
+    named save/overwrite/rename/delete actions, and a picker in the flag editor
+    (thumbnails via `renderFlag`, overwrite-or-save-as, apply-COPIES-not-links,
+    rename/delete, library-only Export/Import). Separate from the castle Design,
+    not in its Export JSON, untouched by New Castle. **No auto-place-along yet.**
   - **2Fe:** the **auto-place-along** convenience (drop flags along a wall/tower
     line).
   - **Deferred:** **2Ff / Approach B** (freeform raster paint), flag
@@ -498,11 +533,12 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
   piece dimensions in the panel.
 - Accessibility basics only: focus styles, button labels, no exotic ARIA work.
 - **Flags: 2Fa (model + symbols + renderer + `#flags` route), 2Fb (the flag
-  piece + schema v2 + placement), and 2Fc (the flag editor) are DONE.** The next
-  slice **2Fd** adds the **saved-flags library** ONLY — still **no**
-  auto-place-along (2Fe), **no** Approach B freeform paint (2Ff), **no** flag
-  animation/waving, and **no drag-reorder** of editor layers (up/down is enough) —
-  all deferred (see "Flags (phase 2F)").
+  piece + schema v2 + placement), 2Fc (the flag editor), and 2Fd (the saved-flags
+  library) are DONE.** The next slice **2Fe** adds the **auto-place-along**
+  convenience ONLY — still **no** Approach B freeform paint (2Ff), **no** flag
+  animation/waving, **no drag-reorder** of editor layers (up/down is enough), and
+  **no live-linked library flags** (applying always COPIES) — all deferred (see
+  "Flags (phase 2F)").
 
 ## Phase plan
 
@@ -726,15 +762,19 @@ generate-once-and-explicit-beats-clever-auto lesson.
 - **1e (navigation):** add the **ramp/stair** with its own pure tested geometry
   helper. **Built last.**
 - **2F (flags):** heraldic flags as a self-contained feature, sub-phased 2Fa–2Fe
-  (2Ff / Approach B deferred). **2Fa + 2Fb + 2Fc are complete:** 2Fa shipped the
-  `FlagDesign` layer-stack model, the SVG symbol library, the pure renderer +
+  (2Ff / Approach B deferred). **2Fa + 2Fb + 2Fc + 2Fd are complete:** 2Fa shipped
+  the `FlagDesign` layer-stack model, the SVG symbol library, the pure renderer +
   `flagTexture`, and the `#flags` QA route; **2Fb** added the **flag piece** (pole
   + cloth skinned by `flagTexture`), the **schema bump to v2** (with a v1→v2
   migration), and single-anchor placement (a placed flag **embeds** its
   `FlagDesign`); **2Fc** added the **flag editor** modal (working-copy layer
   add/reorder/edit + a live `renderFlag` preview + drag-on-preview for charges,
-  applied via one coalesced undoable `updateFlagDesign`) — see "Flags (phase 2F)".
-  2Fd+ add the saved-flags library and auto-place.
+  applied via one coalesced undoable `updateFlagDesign`); **2Fd** added the
+  **saved-flags library** — a separate per-origin store of named designs
+  (`src/flags/library.ts` CRUD + a `flagLibrary` store slice), with an editor panel
+  for overwrite-or-save-as, an Apply picker (renderFlag thumbnails, copies-not-links),
+  rename/delete, and library-only Export/Import — see "Flags (phase 2F)".
+  2Fe adds auto-place-along.
 - **2+:** raised terrain (tiers / motte via `groundHeightAt`), parent/child
   auto-riding, wall↔tower attachment, more pieces, more freedom. Do not start any
   of this without instruction.
