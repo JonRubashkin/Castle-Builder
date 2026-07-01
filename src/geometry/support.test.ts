@@ -39,7 +39,7 @@ function gatehouse(overrides: Partial<Gatehouse> = {}): Gatehouse {
 describe("resolveSupportAt — the face-attach support rule", () => {
   it("over empty ground → base 0, not on a surface", () => {
     const r = resolveSupportAt({ x: 0, y: 0 }, []);
-    expect(r).toEqual({ base: 0, onSurface: false, surfaceId: null });
+    expect(r).toEqual({ base: 0, onSurface: false, surfaceId: null, center: null });
   });
 
   it("over empty ground with pieces elsewhere → still ground (base 0)", () => {
@@ -132,6 +132,7 @@ describe("resolveSupportAt — the face-attach support rule", () => {
       base: 0,
       onSurface: false,
       surfaceId: null,
+      center: null,
     });
   });
 
@@ -154,6 +155,7 @@ describe("resolveSupportAt — the face-attach support rule", () => {
       base: 0,
       onSurface: false,
       surfaceId: null,
+      center: null,
     });
   });
 
@@ -183,6 +185,46 @@ describe("resolveSupportAt — the face-attach support rule", () => {
       base: 0,
       onSurface: false,
       surfaceId: null,
+      center: null,
     });
+  });
+});
+
+describe("resolveSupportAt — the placement modes", () => {
+  it("normal (default) is unchanged: over a tower top it face-attaches, no center", () => {
+    const lower = tower({ id: "lower", base: 0, height: 8 });
+    const r = resolveSupportAt({ x: 0, y: 0 }, [lower], "normal");
+    expect(r.base).toBe(8);
+    expect(r.onSurface).toBe(true);
+    expect(r.surfaceId).toBe("lower");
+    expect(r.center).toBeNull();
+  });
+
+  it("groundOnly: returns ground height even when a surface is under the anchor", () => {
+    const lower = tower({ id: "lower", base: 0, height: 8 });
+    // The anchor is squarely over the tower, but groundOnly ignores face-attach.
+    const r = resolveSupportAt({ x: 0, y: 0 }, [lower], "groundOnly");
+    expect(r.base).toBe(0); // ground (groundHeightAt is 0 this phase), never the top
+    expect(r.onSurface).toBe(false);
+    expect(r.surfaceId).toBeNull();
+    expect(r.center).toBeNull();
+  });
+
+  it("centerOnSupport: reports the supporting piece's center XZ + the surface top", () => {
+    const lower = tower({ id: "lower", position: { x: 3, y: -2 }, base: 0, height: 8 });
+    // Anchor lands inside the tower footprint but off its center.
+    const r = resolveSupportAt({ x: 3.5, y: -1.5 }, [lower], "centerOnSupport");
+    expect(r.base).toBe(8); // height still comes from face-attach
+    expect(r.onSurface).toBe(true);
+    expect(r.surfaceId).toBe("lower");
+    // Center = the supporting piece's own anchor (its footprint source of truth).
+    expect(r.center).toEqual({ x: 3, y: -2 });
+  });
+
+  it("centerOnSupport over open ground: no surface → no center (stays on ground)", () => {
+    const r = resolveSupportAt({ x: 0, y: 0 }, [], "centerOnSupport");
+    expect(r.base).toBe(0);
+    expect(r.onSurface).toBe(false);
+    expect(r.center).toBeNull();
   });
 });

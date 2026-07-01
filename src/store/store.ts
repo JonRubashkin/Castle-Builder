@@ -28,9 +28,12 @@ import {
   type Vec2,
   type WallRun,
 } from "./schema";
-import { resolveSupportAt } from "../geometry/support";
+import { resolveSupportAt, type PlacementMode } from "../geometry/support";
 import { groundHeightAt } from "../geometry/ground";
 import { snapHorizontalVec2 } from "../geometry/grid";
+import { loadPlacementMode, savePlacementMode } from "../persistence/storage";
+
+export type { PlacementMode };
 
 export const HISTORY_CAP = 100;
 
@@ -69,6 +72,10 @@ export interface StoreState {
   design: Design;
   tool: Tool;
   moatShape: MoatShape;
+  // The placement mode for the MOVE/DRAG path — a persisted UI pref (NOT part of
+  // the Design, NOT in undo history). The two toggle tabs are mutually exclusive,
+  // modeled as one enum: "normal" (both off) / "groundOnly" / "centerOnSupport".
+  placementMode: PlacementMode;
   selectedId: string | null;
   history: History;
   // A monotonic boot counter bumped by newDesign(). The editor tree is keyed on
@@ -85,6 +92,9 @@ export interface StoreState {
   // --- tool / selection ---
   setTool: (tool: Tool) => void;
   setMoatShape: (shape: MoatShape) => void;
+  // Set the placement mode. Because it is a single enum, setting one value
+  // inherently clears the other (the two toggles' mutual exclusivity). Persisted.
+  setPlacementMode: (mode: PlacementMode) => void;
   selectPiece: (id: string | null) => void;
 
   // --- committed mutations (each pushes one history entry) ---
@@ -169,6 +179,7 @@ export const useStore = create<StoreState>((set, get) => {
     design: createEmptyDesign(),
     tool: "tower",
     moatShape: "ring",
+    placementMode: loadPlacementMode(), // hydrate the persisted pref on boot
     selectedId: null,
     history: { past: [], future: [] },
     pendingSnapshot: null,
@@ -176,6 +187,10 @@ export const useStore = create<StoreState>((set, get) => {
 
     setTool: (tool) => set({ tool }),
     setMoatShape: (moatShape) => set({ moatShape }),
+    setPlacementMode: (placementMode) => {
+      savePlacementMode(placementMode); // persist the pref (survives reload)
+      set({ placementMode });
+    },
     selectPiece: (id) =>
       set((state) => ({ selectedId: selectionStillValid(state.design, id) })),
 
@@ -387,16 +402,33 @@ export const useStore = create<StoreState>((set, get) => {
           }
           // The moat is GROUND-ONLY (no face-attach); its base routes through the
           // ground-height rule, never an existing piece's top. Every other piece
-          // resolves its base through the SAME support rule the placement path
-          // uses (resolveSupportAt): groundHeightAt over open ground, a piece top
-          // via face-attach. The piece being moved is excluded so it can't seat
-          // on its own footprint. This is the single source of truth — no
-          // hardcoded ground-y. (Walls resolve at the start anchor, `position`.)
+          // resolves its base through the SAME mode-aware support rule the
+          // placement path uses (resolveSupportAt): groundHeightAt over open
+          // ground, a piece top via face-attach. The piece being moved is excluded
+          // so it can't seat on its own footprint. This is the single source of
+          // truth — no hardcoded ground-y and no parallel placement logic; the
+          // active placement mode is read HERE and passed straight through.
+          // (Walls resolve at the start anchor, `position`.)
           if (piece.kind === "moat") {
+            // A moat is inherently ground-only; the toggles don't change that.
             piece.base = groundOnlyBase(piece.position);
           } else {
             const others = design.pieces.filter((p) => p.id !== id);
-            piece.base = resolveSupportAt(piece.position, others).base;
+            const support = resolveSupportAt(piece.position, others, state.placementMode);
+            piece.base = support.base;
+            // Center-on-support: snap the moved piece's anchor onto the supporting
+            // piece's center (reusing the support's own footprint anchor — never a
+            // separately computed center). Height still comes from face-attach
+            // (base above is unchanged). A two-point piece (a wall run) shifts both
+            // endpoints rigidly by the same delta so it keeps its shape.
+            if (support.center) {
+              const dx = support.center.x - piece.position.x;
+              const dy = support.center.y - piece.position.y;
+              if ("end" in piece && piece.end) {
+                piece.end = { x: piece.end.x + dx, y: piece.end.y + dy };
+              }
+              piece.position = { ...support.center };
+            }
           }
         }
         return { design };

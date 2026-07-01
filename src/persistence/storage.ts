@@ -6,6 +6,7 @@
 // a future unknown schema version is refused rather than corrupting data.
 
 import type { Design } from "../store/schema";
+import type { PlacementMode } from "../geometry/support";
 import {
   DesignValidationError,
   parseDesignJSON,
@@ -13,6 +14,11 @@ import {
 } from "./schemaValidation";
 
 const AUTOSAVE_KEY = "castle-builder:autosave";
+// The placement-mode toggle is a persisted UI PREFERENCE — NOT part of the
+// Design and NOT in undo history. It lives in its own localStorage slot so it
+// survives reload independently of the design (the prior project's snapToWall
+// pref pattern).
+const PLACEMENT_MODE_KEY = "castle-builder:placement-mode";
 
 function storage(): Storage | null {
   try {
@@ -53,6 +59,31 @@ export function loadAutosave(): Design | null {
 
 export function clearAutosave(): void {
   storage()?.removeItem(AUTOSAVE_KEY);
+}
+
+// --- Placement-mode preference (persisted, not in the Design) ---------------
+
+const PLACEMENT_MODES: PlacementMode[] = ["normal", "groundOnly", "centerOnSupport"];
+
+/** Persist the placement-mode preference. Failures are non-fatal (privacy mode). */
+export function savePlacementMode(mode: PlacementMode): void {
+  const store = storage();
+  if (!store) return;
+  try {
+    store.setItem(PLACEMENT_MODE_KEY, mode);
+  } catch (err) {
+    console.warn("Saving placement mode failed:", err);
+  }
+}
+
+/** Load the placement-mode preference, defaulting to "normal" (both toggles off). */
+export function loadPlacementMode(): PlacementMode {
+  const store = storage();
+  if (!store) return "normal";
+  const raw = store.getItem(PLACEMENT_MODE_KEY);
+  return raw && (PLACEMENT_MODES as string[]).includes(raw)
+    ? (raw as PlacementMode)
+    : "normal";
 }
 
 // --- Export / Import -------------------------------------------------------
