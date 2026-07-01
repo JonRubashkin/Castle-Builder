@@ -1,5 +1,6 @@
 import { useStore } from "../../store/store";
 import type {
+  Flag,
   Gate,
   Gatehouse,
   MaterialRef,
@@ -552,6 +553,46 @@ function RampPanel({ ramp }: { ramp: Ramp }) {
   );
 }
 
+function FlagPanel({ flag }: { flag: Flag }) {
+  const updatePiece = useStore((s) => s.updatePiece);
+  const deletePiece = useStore((s) => s.deletePiece);
+
+  return (
+    <aside className="panel" aria-label="Flag properties" data-piece-id={flag.id}>
+      <h2 className="panel__title">Flag</h2>
+      <p className="panel__hint">
+        A flag on a pole. It carries its own embedded design — full design editing
+        (field, stripes, charges) arrives with the flag editor.
+      </p>
+
+      <NumberField
+        label="Pole height"
+        value={flag.poleHeight}
+        min={0.5}
+        step={0.5}
+        onCommit={(v) => updatePiece(flag.id, { poleHeight: v })}
+      />
+      <NumberField
+        label="Cloth width"
+        value={flag.clothWidth}
+        min={0.3}
+        step={0.1}
+        onCommit={(v) => updatePiece(flag.id, { clothWidth: v })}
+      />
+      <RotationField
+        value={flag.rotation}
+        onCommit={(deg) => updatePiece(flag.id, { rotation: deg })}
+      />
+
+      <PlaceOnTopButton />
+
+      <button type="button" className="panel__delete" onClick={() => deletePiece(flag.id)}>
+        Delete flag
+      </button>
+    </aside>
+  );
+}
+
 function MoatPanel({ moat }: { moat: Moat }) {
   const updatePiece = useStore((s) => s.updatePiece);
   const deletePiece = useStore((s) => s.deletePiece);
@@ -672,6 +713,8 @@ export function PiecePanel() {
       return <MoatPanel moat={piece} />;
     case "ramp":
       return <RampPanel ramp={piece} />;
+    case "flag":
+      return <FlagPanel flag={piece} />;
     default:
       return <EmptyPanel />;
   }

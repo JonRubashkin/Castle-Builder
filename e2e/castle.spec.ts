@@ -913,6 +913,162 @@ test.describe("Castle Builder — phases 1a–1b", () => {
   });
 
 
+  test("place a flag with the Flag tool (embedded design + default params)", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    const flag = (await pieces(page))[0];
+    expect(flag.kind).toBe("flag");
+    // Default pole/cloth params.
+    expect(flag.poleHeight).toBeGreaterThan(0);
+    expect(flag.clothWidth).toBeGreaterThan(0);
+    // It embeds its own FlagDesign (the design travels with the piece).
+    expect(flag.design).toBeTruthy();
+    expect(typeof flag.design.aspect).toBe("number");
+    expect(Array.isArray(flag.design.layers)).toBe(true);
+    expect(flag.design.layers.length).toBeGreaterThan(0);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("flag: select, edit a param, rotate (15° steps), and delete", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    // Select via the accessor (the thin pole / angled cloth is awkward to pick by
+    // a single canvas click — and e2e never reads canvas pixels).
+    await page.getByRole("button", { name: "Select" }).click();
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+    await expect(page.getByRole("heading", { name: "Flag" })).toBeVisible();
+
+    // Edit a param (pole height).
+    await page.getByLabel("Pole height").fill("9");
+    await expect.poll(async () => (await pieces(page))[0].poleHeight).toBe(9);
+
+    // Rotate (15° steps).
+    await page.getByLabel("Rotation").fill("45");
+    await expect.poll(async () => (await pieces(page))[0].rotation).toBe(45);
+
+    // Delete via the panel button.
+    await page.getByRole("button", { name: "Delete flag" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+  });
+
+  test("flag: face-attaches onto a tower top when placed over it, and moves undoably", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // A tower on the ground; its top is base + height.
+    const towerTop = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const id = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      const t = api.getPieces().find((p: any) => p.id === id);
+      return t.base + t.height;
+    });
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    // Place a flag over the tower (the origin is on the tower footprint) → it
+    // seats on the tower top via face-attach.
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const flag = (await pieces(page)).find((p) => p.kind === "flag");
+    expect(flag.base).toBeCloseTo(towerTop, 6); // planted on the tower top
+
+    // Drag the flag off onto open ground → its base returns to the ground; undoable.
+    await page.evaluate((id) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setPiecePositionTransient(id, { x: 60, y: 60 });
+      api.getState().commitTransient();
+    }, flag.id);
+    await expect
+      .poll(async () => (await pieces(page)).find((p) => p.id === flag.id).base)
+      .toBe(0);
+
+    await page.evaluate(() => (window as any).__CASTLE_E2E__.getState().undo());
+    await expect
+      .poll(async () => (await pieces(page)).find((p) => p.id === flag.id).base)
+      .toBeCloseTo(towerTop, 6);
+  });
+
+  test("flag: nothing face-attaches onto a flag (it is not a stackable surface)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // A flag on the ground, then a tower placed at the same anchor: the tower must
+    // NOT seat on the flag (a flag has no flat top) — it stays on the ground.
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().addFlag({ position: { x: 0, y: 0 }, base: 0 });
+    });
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    await page.getByRole("button", { name: "Tower" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const tower = (await pieces(page)).find((p) => p.kind === "tower");
+    expect(tower.base).toBe(0); // did not climb onto the flag
+  });
+
+  test("Export → Import round-trips a flag with its embedded design (validated load)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // Place a flag.
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    const before = (await pieces(page))[0];
+
+    // Serialize the design (what Export writes), stash it, then reload. On reload
+    // the app loads it through the SAME validated path Import uses
+    // (parseDesignJSON → validateDesign → migration), so this exercises the real
+    // round-trip — not just a JSON copy.
+    const json = await page.evaluate(() =>
+      JSON.stringify((window as any).__CASTLE_E2E__.getState().design),
+    );
+    await page.evaluate((raw) => {
+      window.localStorage.setItem("castle-builder:autosave", raw);
+    }, json);
+
+    await page.reload();
+    await page.waitForFunction(() => Boolean((window as any).__CASTLE_E2E__));
+
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    const after = (await pieces(page))[0];
+    expect(after.kind).toBe("flag");
+    // The embedded design survived the validated round-trip verbatim.
+    expect(after.design).toEqual(before.design);
+    expect(after.poleHeight).toBe(before.poleHeight);
+    expect(after.clothWidth).toBe(before.clothWidth);
+  });
+
   test("New Castle: Esc dismisses the dialog with no change", async ({ page }) => {
     await openApp(page);
 

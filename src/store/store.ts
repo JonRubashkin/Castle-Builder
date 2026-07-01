@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import {
+  createDefaultFlagDesign,
   createEmptyDesign,
+  DEFAULT_FLAG_CLOTH_WIDTH,
+  DEFAULT_FLAG_POLE_HEIGHT,
   DEFAULT_GATE_HEIGHT,
   DEFAULT_GATE_WIDTH,
   DEFAULT_GATEHOUSE_DEPTH,
@@ -19,6 +22,7 @@ import {
   DEFAULT_WALL_THICKNESS,
   DEFAULT_WATER_MATERIAL,
   type Design,
+  type Flag,
   type Gate,
   type Gatehouse,
   type Moat,
@@ -45,7 +49,8 @@ export type Tool =
   | "wallRun"
   | "gate"
   | "moat"
-  | "ramp";
+  | "ramp"
+  | "flag";
 
 /** The moat tool's sub-mode: a ring (annulus) or a straight segment. */
 export type MoatShape = "ring" | "segment";
@@ -117,6 +122,9 @@ export interface StoreState {
   addGatehouse: (input: { position: Vec2; base: number }) => string;
   addWallRun: (input: { position: Vec2; end: Vec2; base: number }) => string;
   addGate: (input: { position: Vec2; base: number }) => string;
+  // A flag is a single-anchor piece (ground-raycast + face-attach like a tower);
+  // it embeds a default FlagDesign until the 2Fc editor exists.
+  addFlag: (input: { position: Vec2; base: number }) => string;
   // The ramp connects two points: the caller computes position/base/rotation/
   // rise/run (via resolveRampConnection) or falls back to defaults; width/style/
   // material default here and stay editable in the panel.
@@ -334,6 +342,26 @@ export const useStore = create<StoreState>((set, get) => {
       };
       commit((design) => {
         design.pieces.push(gate);
+        return design;
+      });
+      return id;
+    },
+
+    addFlag: ({ position, base }) => {
+      const id = nextId();
+      const flag: Flag = {
+        id,
+        kind: "flag",
+        position: { ...position },
+        base,
+        rotation: 0,
+        // A fresh default design per flag (embed model: the flag owns its design).
+        design: createDefaultFlagDesign(),
+        poleHeight: DEFAULT_FLAG_POLE_HEIGHT,
+        clothWidth: DEFAULT_FLAG_CLOTH_WIDTH,
+      };
+      commit((design) => {
+        design.pieces.push(flag);
         return design;
       });
       return id;
