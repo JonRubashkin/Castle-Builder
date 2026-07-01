@@ -866,6 +866,9 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     const b = (await pieces(page)).find((p) => p.id === ids.b);
     expect(b.position).toEqual(anchor); // XZ centered on the supporting piece
     expect(b.base).toBeCloseTo(top, 6); // height still from face-attach
+    // Regression guard for the reported bug: it must RISE to the support top,
+    // not stay on the ground like ground-only.
+    expect(b.base).not.toBe(0);
   });
 
   test("New Castle: Esc dismisses the dialog with no change", async ({ page }) => {

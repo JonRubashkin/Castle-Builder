@@ -258,6 +258,50 @@ describe("store: placement-mode toggles (persisted pref, mode-aware move path)",
     expect(tower(moverId).base).toBe(lower.base + lower.height);
   });
 
+  it("centerOnSupport: dragging onto a tower RISES to the top, not ground (regression)", () => {
+    // Regression guard for the reported bug ("stays at ground / behaves like
+    // ground-only"). Through the full move→commit path the moved piece must end
+    // up seated on the supporting tower's TOP (base = tower top, NOT 0) AND
+    // centered — contrasted below with groundOnly, which stays on the ground.
+    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
+    const moverId = useStore.getState().addTower(at(50, 50));
+    const lower = tower(lowerId);
+    const groundY = 0; // groundHeightAt is 0 this phase
+    const towerTop = lower.base + lower.height; // 8
+
+    useStore.getState().setPlacementMode("centerOnSupport");
+    useStore.getState().selectPiece(moverId);
+    useStore.getState().beginTransient();
+    useStore.getState().setPiecePositionTransient(moverId, { x: 3.5, y: -1.5 });
+    useStore.getState().commitTransient();
+
+    // Rose to the surface top — explicitly NOT the ground — and centered.
+    expect(tower(moverId).base).toBe(towerTop);
+    expect(tower(moverId).base).not.toBe(groundY);
+    expect(tower(moverId).position).toEqual({ x: 3, y: -2 });
+
+    // Contrast: groundOnly over the same tower stays on the ground (no rise).
+    const groundMoverId = useStore.getState().addTower(at(60, 60));
+    useStore.getState().setPlacementMode("groundOnly");
+    useStore.getState().selectPiece(groundMoverId);
+    useStore.getState().beginTransient();
+    useStore.getState().setPiecePositionTransient(groundMoverId, { x: 3.5, y: -1.5 });
+    useStore.getState().commitTransient();
+    expect(tower(groundMoverId).base).toBe(groundY);
+  });
+
+  it("centerOnSupport over open ground behaves like normal: seats on ground, no center", () => {
+    const moverId = useStore.getState().addTower(at(50, 50));
+    useStore.getState().setPlacementMode("centerOnSupport");
+    useStore.getState().selectPiece(moverId);
+    useStore.getState().beginTransient();
+    // No piece under the anchor → nothing to center on → stays put on the ground.
+    useStore.getState().setPiecePositionTransient(moverId, { x: 20, y: 20 });
+    useStore.getState().commitTransient();
+    expect(tower(moverId).base).toBe(0);
+    expect(tower(moverId).position).toEqual({ x: 20, y: 20 });
+  });
+
   it("centerOnSupport over open ground leaves the anchor where it is (no surface)", () => {
     const moverId = useStore.getState().addTower(at(50, 50));
     useStore.getState().setPlacementMode("centerOnSupport");
