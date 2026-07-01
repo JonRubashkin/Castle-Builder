@@ -8,6 +8,24 @@ import { createPatternCanvas } from "./patterns";
 
 const textureCache = new Map<string, THREE.Texture>();
 
+// The single offscreen-canvas → Three.js texture path. Any part of the app that
+// draws onto a canvas and wants it as a scene texture (the procedural patterns
+// below; the flag renderer in src/flags) routes through here, so texture setup
+// (sRGB, anisotropy, opaque) lives in exactly one place. `wrap` defaults to
+// clamp-to-edge (a single non-tiling image, e.g. a flag); patterns pass
+// RepeatWrapping so tiles repeat across a surface.
+export function canvasToTexture(
+  canvas: HTMLCanvasElement,
+  wrap: THREE.Wrapping = THREE.ClampToEdgeWrapping,
+): THREE.CanvasTexture {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = wrap;
+  tex.wrapT = wrap;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 // A repeating Three.js texture for a pattern material.
 export function patternTexture(
   ref: Extract<MaterialRef, { kind: "pattern" }>,
@@ -15,11 +33,7 @@ export function patternTexture(
   const key = materialKey(ref);
   let tex = textureCache.get(key);
   if (!tex) {
-    tex = new THREE.CanvasTexture(createPatternCanvas(ref));
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4;
+    tex = canvasToTexture(createPatternCanvas(ref), THREE.RepeatWrapping);
     textureCache.set(key, tex);
   }
   return tex;
