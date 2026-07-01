@@ -1102,7 +1102,7 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     await page.getByRole("button", { name: "Add charge" }).click();
 
     // Apply → the stored embedded design gains both layers, in ONE undoable edit.
-    await page.getByRole("button", { name: "Apply" }).click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
     await expect(page.getByRole("dialog", { name: "Flag design editor" })).toBeHidden();
 
     const design = (await pieces(page))[0].design;
@@ -1159,7 +1159,7 @@ test.describe("Castle Builder — phases 1a–1b", () => {
 
     // Apply → the stored charge's x moved to match the dragged value.
     const sliderX = Number(await xSlider.inputValue());
-    await page.getByRole("button", { name: "Apply" }).click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
 
     const charge = (await pieces(page))[0].design.layers.find(
       (l: any) => l.kind === "charge",
@@ -1215,11 +1215,207 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     await page.getByRole("button", { name: "Edit design…" }).click();
     // Nudge the aspect slider to its max, then Apply.
     await page.getByLabel("Aspect").fill("3");
-    await page.getByRole("button", { name: "Apply" }).click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
 
     const aspectAfter = (await pieces(page))[0].design.aspect;
     expect(aspectAfter).not.toBe(aspectBefore);
     expect(aspectAfter).toBeCloseTo(3, 6);
+  });
+
+  // --- Saved-flags library (2Fd) --------------------------------------------
+
+  // Place N flags and return their ids (the thin pole is awkward to click; the
+  // e2e accessor never reads canvas pixels, so place + select via the store).
+  async function placeFlags(page: import("@playwright/test").Page, n: number) {
+    return page.evaluate((count) => {
+      const api = (window as any).__CASTLE_E2E__;
+      const ids: string[] = [];
+      for (let i = 0; i < count; i++) {
+        ids.push(api.getState().addFlag({ position: { x: i * 4, y: 0 }, base: 0 }));
+      }
+      return ids;
+    }, n);
+  }
+
+  const openEditorFor = async (
+    page: import("@playwright/test").Page,
+    id: string,
+  ) => {
+    await page.evaluate((fid) => {
+      (window as any).__CASTLE_E2E__.getState().selectPiece(fid);
+    }, id);
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Flag design editor" }),
+    ).toBeVisible();
+  };
+
+  const library = (page: import("@playwright/test").Page) =>
+    page.evaluate(() => (window as any).__CASTLE_E2E__.getFlagLibrary());
+
+  test("library: save a design, apply it to a different flag (copied into its embedded design)", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+    const [flagA, flagB] = await placeFlags(page, 2);
+    await page.getByRole("button", { name: "Select" }).click();
+
+    // Author a distinctive design on flag A and SAVE it to the library.
+    await openEditorFor(page, flagA);
+    await page.getByRole("button", { name: "Add charge" }).click();
+    await page.getByLabel("Library entry name").fill("War Banner");
+    await page.getByRole("button", { name: "Save as new" }).click();
+    await expect
+      .poll(async () => (await library(page)).length)
+      .toBe(1);
+    const saved = (await library(page))[0];
+    expect(saved.name).toBe("War Banner");
+    expect(saved.design.layers.some((l: any) => l.kind === "charge")).toBe(true);
+    await page.locator('[data-action="flag-editor-apply"]').click();
+
+    // Flag B starts on its default design (no charge). Apply the saved one.
+    const bBefore = (await pieces(page)).find((p) => p.id === flagB);
+    expect(bBefore.design.layers.some((l: any) => l.kind === "charge")).toBe(false);
+
+    await openEditorFor(page, flagB);
+    await page.locator('[data-action="apply-flag-library"]').first().click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
+
+    // Flag B's embedded design now MATCHES the saved entry (copied in).
+    const bAfter = (await pieces(page)).find((p) => p.id === flagB);
+    expect(bAfter.design).toEqual(saved.design);
+    // Flag A is untouched by any of this.
+    const aAfter = (await pieces(page)).find((p) => p.id === flagA);
+    expect(aAfter.design.layers.some((l: any) => l.kind === "charge")).toBe(true);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("library: applying copies (no live link) — editing the flag leaves the library entry unchanged", async ({
+    page,
+  }) => {
+    await openApp(page);
+    const [flagA, flagB] = await placeFlags(page, 2);
+    await page.getByRole("button", { name: "Select" }).click();
+
+    // Save flag A's (default) design, then apply it to flag B.
+    await openEditorFor(page, flagA);
+    await page.getByLabel("Library entry name").fill("Base");
+    await page.getByRole("button", { name: "Save as new" }).click();
+    await expect.poll(async () => (await library(page)).length).toBe(1);
+    await page.locator('[data-action="flag-editor-apply"]').click();
+
+    const entryLayers = (await library(page))[0].design.layers.length;
+
+    await openEditorFor(page, flagB);
+    await page.locator('[data-action="apply-flag-library"]').first().click();
+    // Now edit flag B's working copy (add layers) and Apply.
+    await page.getByRole("button", { name: "Add stripes" }).click();
+    await page.getByRole("button", { name: "Add charge" }).click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
+
+    // Flag B changed...
+    const bAfter = (await pieces(page)).find((p) => p.id === flagB);
+    expect(bAfter.design.layers.length).toBe(entryLayers + 2);
+    // ...but the library entry is UNCHANGED (copy, not link).
+    expect((await library(page))[0].design.layers.length).toBe(entryLayers);
+  });
+
+  test("library: overwrite vs save-as both behave", async ({ page }) => {
+    await openApp(page);
+    const [flagA] = await placeFlags(page, 1);
+    await page.getByRole("button", { name: "Select" }).click();
+
+    // Save an initial entry.
+    await openEditorFor(page, flagA);
+    await page.getByLabel("Library entry name").fill("Crest");
+    await page.getByRole("button", { name: "Save as new" }).click();
+    await expect.poll(async () => (await library(page)).length).toBe(1);
+    const firstId = (await library(page))[0].id;
+
+    // The design is now sourced from "Crest" → an Overwrite button appears. Change
+    // the working design and Overwrite: same entry id, updated design, still ONE.
+    await page.getByRole("button", { name: "Add charge" }).click();
+    await page.locator('[data-action="overwrite-flag-library"]').click();
+    await expect
+      .poll(async () => (await library(page)).length)
+      .toBe(1); // no new entry
+    const overwritten = (await library(page))[0];
+    expect(overwritten.id).toBe(firstId); // same entry, in place
+    expect(overwritten.design.layers.some((l: any) => l.kind === "charge")).toBe(
+      true,
+    );
+
+    // Save as new → a SECOND entry, the first left intact.
+    await page.getByLabel("Library entry name").fill("Crest v2");
+    await page.getByRole("button", { name: "Save as new" }).click();
+    await expect.poll(async () => (await library(page)).length).toBe(2);
+    const names = (await library(page)).map((e: any) => e.name).sort();
+    expect(names).toEqual(["Crest", "Crest v2"]);
+  });
+
+  test("library: delete an entry doesn't affect a flag that already embedded a copy", async ({
+    page,
+  }) => {
+    await openApp(page);
+    const [flagA, flagB] = await placeFlags(page, 2);
+    await page.getByRole("button", { name: "Select" }).click();
+
+    await openEditorFor(page, flagA);
+    await page.getByRole("button", { name: "Add charge" }).click();
+    await page.getByLabel("Library entry name").fill("Doomed");
+    await page.getByRole("button", { name: "Save as new" }).click();
+    await expect.poll(async () => (await library(page)).length).toBe(1);
+    await page.locator('[data-action="flag-editor-apply"]').click();
+
+    // Apply it into flag B, commit.
+    await openEditorFor(page, flagB);
+    await page.locator('[data-action="apply-flag-library"]').first().click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
+    const bDesign = (await pieces(page)).find((p) => p.id === flagB).design;
+
+    // Delete the entry from the picker (two-step confirm).
+    await openEditorFor(page, flagB);
+    await page
+      .getByTestId("flag-library-row")
+      .getByRole("button", { name: "Delete", exact: true })
+      .click();
+    await page.locator('[data-action="confirm-delete-flag-library"]').click();
+    await expect.poll(async () => (await library(page)).length).toBe(0);
+    await page.getByRole("button", { name: "Cancel" }).click();
+
+    // Flag B still carries its embedded copy — deleting the library entry did
+    // nothing to it.
+    const bStill = (await pieces(page)).find((p) => p.id === flagB).design;
+    expect(bStill).toEqual(bDesign);
+  });
+
+  test("library: New Castle leaves the saved-flags library intact", async ({
+    page,
+  }) => {
+    await openApp(page);
+    const [flagA] = await placeFlags(page, 1);
+    await page.getByRole("button", { name: "Select" }).click();
+
+    await openEditorFor(page, flagA);
+    await page.getByLabel("Library entry name").fill("Survivor");
+    await page.getByRole("button", { name: "Save as new" }).click();
+    await expect.poll(async () => (await library(page)).length).toBe(1);
+    await page.locator('[data-action="flag-editor-apply"]').click();
+
+    // New Castle clears the castle...
+    await page.getByRole("button", { name: "New Castle" }).click();
+    await page.getByRole("button", { name: "Start new" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(0);
+    // ...but the library survives (separate per-origin store).
+    expect((await library(page)).length).toBe(1);
+    expect((await library(page))[0].name).toBe("Survivor");
   });
 
   test("New Castle: Esc dismisses the dialog with no change", async ({ page }) => {

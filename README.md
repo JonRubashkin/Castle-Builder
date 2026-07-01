@@ -26,8 +26,12 @@ runs client-side — no backend.
 > bumped the schema to **v2** (with a v1→v2 migration). The **flag editor (2Fc)**
 > is now in: select a flag and click **Edit design…** to compose its layer stack
 > (add / remove / reorder field, stripes, and charges), with a **live preview** and
-> **drag-on-preview** to reposition charges. The saved-flags **library** (2Fd) is
-> still to come.
+> **drag-on-preview** to reposition charges. The **saved-flags library (2Fd)** is
+> also in: name and save designs from the editor (**overwrite-or-save-as**), then
+> **apply** any saved design onto another flag — applying **copies** it in (no live
+> link). The library is per-origin browser storage, **separate** from the castle
+> (not in a castle's Export JSON, untouched by New Castle). **Auto-place-along
+> (2Fe)** is still to come.
 
 ## Tech stack
 
@@ -61,7 +65,7 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Gate tool** | Click the ground to place a **freestanding timber gate** (a portcullis lattice) at the grid-snapped cursor; same ghost / face-attach behavior as the tower. It's a standalone piece — position it in a gatehouse archway or against a wall; it does **not** cut a real opening (no CSG in phase 1). Rotate it (15° steps in the panel) to face across the archway. |
 | **Moat tool** | Places **opaque water**. Pick a **sub-mode** in the panel (shown when the Moat tool is active): **Ring** (default) is a single click — an annulus with editable inner/outer radii; **Segment** is **two clicks** (start, then end) — a straight strip with an editable width. A moat is **ground-only** (it never face-attaches) and sits on its own water layer so it can't z-fight the ground. `Esc` cancels an in-progress segment. |
 | **Ramp tool** | A **connection**, placed with **two clicks**: click a **bottom** (on the ground, or on a flat piece top via face-attach), then a **top surface** (a tower / gatehouse / wall top). The ramp computes its own `rise` / `run` / heading to **literally span** the two points — a live preview shows the resulting rise/run while you aim. The heading is **exact** (the ramp aims precisely at the connection — **no 15° rotation snap**, unlike every other piece). The connection is literal (no slope-smartness), so a steep result is honest feedback; tune it in the panel afterward. If the **top click misses a real surface** (empty ground), it falls back to a **tunable default ramp** from the bottom anchor instead of getting stuck. `Esc` cancels. A ramp can sit **on** flat tops, but **nothing face-attaches onto a ramp** (its top is a slope). |
-| **Flag tool** | Click the ground to plant a **flag** (a cloth on a pole) at the grid-snapped cursor — one at a time; same ghost / face-attach behavior as the tower, so a flag can plant on the ground or **on top of a piece** (a flag on a tower top is a real castle move). Each flag carries its **own embedded heraldic design** (a default until the flag editor lands in 2Fc), rendered onto the cloth. `Esc` cancels; the tool stays active. A flag is **not** a face-attach **target** — nothing stacks on a flag (its top is a pole/cloth). |
+| **Flag tool** | Click the ground to plant a **flag** (a cloth on a pole) at the grid-snapped cursor — one at a time; same ghost / face-attach behavior as the tower, so a flag can plant on the ground or **on top of a piece** (a flag on a tower top is a real castle move). Each flag carries its **own embedded heraldic design** (seeded with a default; edit it via **Edit design…**, or apply a saved one from the flag library), rendered onto the cloth. `Esc` cancels; the tool stays active. A flag is **not** a face-attach **target** — nothing stacks on a flag (its top is a pole/cloth). |
 | **Face-attach** | With the tower / gatehouse / wall / **gate** / **ramp** / **flag** tool, place over an existing piece's footprint: the new piece (or a ramp's **bottom** anchor) seats on that piece's **top** (its stored base = the lower piece's top), instead of on the ground. A wall seats at its **start** anchor's support height. (The moat is exempt — it always seats on the ground; and the ramp / **flag** are never face-attach **targets**.) |
 | **Select tool** | Click a piece to select it; click empty ground to deselect. |
 | Move a selected piece | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**, subject to the **Keep on ground** toggle below. For a wall, the gizmo moves the **whole wall** (both endpoints together). |
@@ -84,6 +88,14 @@ leaving existing pieces untouched), while a file from a **newer, unknown** versi
 is refused rather than risking corruption. An exported castle carries its flags
 inline (each flag embeds its own design), so Export/Import round-trips them for
 free.
+
+The **saved-flags library** is a **separate** per-origin store (its own
+`localStorage` slot), holding your named flag designs. It is **not** part of the
+castle `Design`: it is **not** in a castle's Export JSON and is **untouched by New
+Castle**. Because it doesn't ride along in a castle export, the flag editor offers
+its own **Export library / Import library** JSON — the backup path for the palette.
+The single browser-storage disclosure (in the bottom bar) covers both the castle
+autosave and this library.
 **New Castle** clears everything to a fresh empty design (after confirmation) and
 autosaves the empty design — so a later reload resumes empty, not the old castle.
 The reset runs through one atomic store action (`newDesign`) that also clears the
@@ -101,13 +113,15 @@ undoable step.)
 ## Flags (phase 2F)
 
 Heraldic **flags** are a self-contained feature being built alongside the castle
-kit. **Slices 2Fa–2Fc are done.** 2Fa shipped the foundation — the layer-stack
+kit. **Slices 2Fa–2Fd are done.** 2Fa shipped the foundation — the layer-stack
 data model, the symbol library, the renderer, and a dev QA route. **2Fb** added
 the flag as a real placeable piece — a cloth on a pole, planted one at a time
 (ground or face-attach), carrying its **own embedded `FlagDesign`** rendered onto
 the cloth via the 2Fa renderer (schema bumped to **v2** with a v1→v2 migration).
-**2Fc (this slice) adds the flag editor:** a modal that composes the selected
-flag's embedded design. The saved-flags **library** (2Fd) is still to come.
+**2Fc** added the flag editor — a modal that composes the selected flag's embedded
+design. **2Fd (this slice) adds the saved-flags library:** a persistent, named
+palette of designs you save from the editor and reuse across flags and castles.
+**Auto-place-along (2Fe)** is still to come.
 
 - **The model — a layer stack.** A `FlagDesign` is `{ aspect, layers[] }` drawn
   **back-to-front**: a **field** (a solid color or a `perPale` / `perFess` /
@@ -142,17 +156,30 @@ flag's embedded design. The saved-flags **library** (2Fd) is still to come.
   `chargeAtPoint` in `src/flags/editorPicking.ts`) reusing the renderer's own
   charge transform, and dragging edits the **same** x/y the sliders do (one source
   of truth — no drift). Editing the **aspect** reshapes the cloth on Apply.
+- **The saved-flags library (2Fd).** A per-origin palette of **named** designs,
+  managed from a panel inside the flag editor. **Save to library** captures the
+  current working design under a name, with **overwrite-or-save-as**: a design
+  applied *from* a library entry can **Overwrite** that entry or **Save as new**; a
+  hand-built design only Saves as a new named entry — overwriting is always an
+  explicit choice (never a silent clobber). The picker lists entries with
+  `renderFlag` **thumbnails**; **Apply** copies a design into the editor's working
+  copy — a **copy, not a live link** (editing the flag afterward doesn't touch the
+  library entry, and vice versa) — committed on the editor's Apply like any other
+  edit. Entries can be **renamed** and **deleted** (delete is a two-step confirm);
+  deleting an entry does **not** affect any placed flag that already embedded a copy
+  of it. The library is its **own** `localStorage` slot — **separate** from the
+  castle, **not** in a castle's Export JSON, and **untouched by New Castle** — so it
+  also has its own **Export library / Import library** JSON backup. The pure library
+  CRUD lives in `src/flags/library.ts` (unit-tested); the UI is
+  `src/components/ui/FlagLibraryPanel.tsx`.
 - **Dev QA route.** Open **`#flags`** (e.g. `http://localhost:5173/#flags`) — a
   dev-only screen (not in the main app) that renders example flags (solid,
   tricolor, quartered, field+charge, busy) and the full symbol library, so the
   renderer can be eyeballed before the editor exists.
-- **Planned model (later slices):** a separate **saved-flags library** will hold
-  **named** designs with **overwrite-or-save-as** semantics, and placing from it
-  **copies** the design into the piece. Sub-plan: **2Fa** model + library +
-  renderer (**done**) → **2Fb** flag piece + schema bump + placement (**done**) →
-  **2Fc** editor (**done**) → **2Fd** saved-flags library → **2Fe**
-  auto-place-along; **2Ff / Approach B** (freeform raster paint) and flag waving
-  are deferred.
+- **Sub-plan:** **2Fa** model + symbols + renderer (**done**) → **2Fb** flag piece
+  + schema bump + placement (**done**) → **2Fc** editor (**done**) → **2Fd**
+  saved-flags library (**done**) → **2Fe** auto-place-along; **2Ff / Approach B**
+  (freeform raster paint) and flag waving are deferred.
 
 ## Coordinates & units
 

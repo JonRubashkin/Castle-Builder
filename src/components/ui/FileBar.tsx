@@ -5,6 +5,7 @@ import {
   downloadDesign,
   importDesignFile,
 } from "../../persistence/storage";
+import { STORAGE_DISCLOSURE } from "../../persistence/disclosure";
 
 export function FileBar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,10 +52,7 @@ export function FileBar() {
           data-testid="import-input"
         />
       </div>
-      <p className="filebar__notice">
-        Your work autosaves in this browser only. Clearing browser data erases
-        it — use Export JSON to keep a backup.
-      </p>
+      <p className="filebar__notice">{STORAGE_DISCLOSURE}</p>
     </footer>
   );
 }

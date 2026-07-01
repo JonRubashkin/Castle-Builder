@@ -33,11 +33,23 @@ import {
   type WallRun,
 } from "./schema";
 import type { FlagDesign } from "../flags/types";
+import {
+  deleteEntry,
+  overwriteEntry,
+  renameEntry,
+  saveNewEntry,
+  type FlagLibrary,
+} from "../flags/library";
 import { resolveSupportAt, type PlacementMode } from "../geometry/support";
 import { resolvePlaceOnTop } from "../geometry/placeOnTop";
 import { groundHeightAt } from "../geometry/ground";
 import { snapHorizontalVec2 } from "../geometry/grid";
-import { loadPlacementMode, savePlacementMode } from "../persistence/storage";
+import {
+  loadFlagLibrary,
+  loadPlacementMode,
+  saveFlagLibrary,
+  savePlacementMode,
+} from "../persistence/storage";
 
 export type { PlacementMode };
 
@@ -89,6 +101,11 @@ export interface StoreState {
   // click on a valid target piece seats the SELECTED piece on that target's top
   // (see placeOnTopTarget) instead of selecting it.
   placeOnTopArmed: boolean;
+  // The saved-flags library (2Fd): named FlagDesigns reused across flags/castles.
+  // It is a SEPARATE per-origin store — NOT part of the castle Design, NOT in its
+  // Export JSON, NOT in undo history, and untouched by newDesign (New Castle).
+  // Hydrated from its own localStorage slot on boot; every mutation persists it.
+  flagLibrary: FlagLibrary;
   history: History;
   // A monotonic boot counter bumped by newDesign(). The editor tree is keyed on
   // it (<Editor key={bootNonce} />) so a "New Castle" reset fully REMOUNTS a clean
@@ -149,6 +166,19 @@ export interface StoreState {
   // slider-coalescing spirit — while Cancel/Esc simply discard the working copy.
   updateFlagDesign: (id: string, design: FlagDesign) => void;
   deletePiece: (id: string) => void;
+
+  // --- saved-flags library (2Fd) — separate from the Design, not undoable ---
+  // Save the given design under a NEW named entry; returns the new entry's id (so
+  // the editor can record it as the working design's source for later Overwrite).
+  saveFlagToLibrary: (name: string, design: FlagDesign) => string;
+  // Overwrite an existing entry's design in place (an EXPLICIT choice — never
+  // silent). Rename / delete manage entries from the picker. Deleting an entry
+  // does NOT touch any placed flag that already embedded a copy of it.
+  overwriteFlagLibraryEntry: (id: string, design: FlagDesign) => void;
+  renameFlagLibraryEntry: (id: string, name: string) => void;
+  deleteFlagLibraryEntry: (id: string) => void;
+  // Replace the whole library (library-only JSON import — its own backup path).
+  replaceFlagLibrary: (library: FlagLibrary) => void;
 
   // --- transient interaction (drag / gizmo) ---
   beginTransient: () => void;
@@ -212,6 +242,7 @@ export const useStore = create<StoreState>((set, get) => {
     placementMode: loadPlacementMode(), // hydrate the persisted pref on boot
     selectedId: null,
     placeOnTopArmed: false,
+    flagLibrary: loadFlagLibrary(), // hydrate the saved-flags palette on boot
     history: { past: [], future: [] },
     pendingSnapshot: null,
     bootNonce: 0,
@@ -451,6 +482,41 @@ export const useStore = create<StoreState>((set, get) => {
         if (piece && piece.kind === "flag") piece.design = clone(flagDesign);
         return design;
       });
+    },
+
+    // --- saved-flags library (separate store; persisted; not undoable) -------
+    // These mutate `flagLibrary` (never the castle Design) and persist to the
+    // library's own slot. The pure CRUD deep-clones designs in, so a saved entry
+    // never shares a reference with the editor's working copy (copy, not link).
+
+    saveFlagToLibrary: (name, design) => {
+      const { library, entry } = saveNewEntry(get().flagLibrary, name, design);
+      saveFlagLibrary(library);
+      set({ flagLibrary: library });
+      return entry.id;
+    },
+
+    overwriteFlagLibraryEntry: (id, design) => {
+      const library = overwriteEntry(get().flagLibrary, id, design);
+      saveFlagLibrary(library);
+      set({ flagLibrary: library });
+    },
+
+    renameFlagLibraryEntry: (id, name) => {
+      const library = renameEntry(get().flagLibrary, id, name);
+      saveFlagLibrary(library);
+      set({ flagLibrary: library });
+    },
+
+    deleteFlagLibraryEntry: (id) => {
+      const library = deleteEntry(get().flagLibrary, id);
+      saveFlagLibrary(library);
+      set({ flagLibrary: library });
+    },
+
+    replaceFlagLibrary: (library) => {
+      saveFlagLibrary(library);
+      set({ flagLibrary: library });
     },
 
     setWallEndpoint: (id, which, point) => {
