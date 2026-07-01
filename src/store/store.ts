@@ -42,6 +42,7 @@ import {
 } from "../flags/library";
 import { resolveSupportAt, type PlacementMode } from "../geometry/support";
 import { resolvePlaceOnTop } from "../geometry/placeOnTop";
+import { flagPositionsAlong, type FlagAlongOptions } from "../geometry/flagAlong";
 import { groundHeightAt } from "../geometry/ground";
 import { snapHorizontalVec2 } from "../geometry/grid";
 import {
@@ -158,6 +159,17 @@ export interface StoreState {
   addMoatRing: (input: { position: Vec2 }) => string;
   addMoatSegment: (input: { position: Vec2; end: Vec2 }) => string;
   updatePiece: (id: string, patch: Partial<Piece>) => void;
+  // Auto-place-along (2Fe): generate independent Flag pieces evenly spaced along a
+  // HOST piece's top edge (a wall run / gatehouse — see flagPositionsAlong), each
+  // embedding a COPY of the given design (or a fresh default). ONE undoable step;
+  // returns the new flag ids. GENERATE-ONCE — the flags are ordinary independent
+  // pieces from that moment (no live "follow the wall" link): later resizing/moving
+  // the host does NOT re-space or move them. A no-op (returns []) for an
+  // unsupported host or a degenerate edge.
+  addFlagsAlong: (
+    hostId: string,
+    opts?: FlagAlongOptions & { design?: FlagDesign },
+  ) => string[];
   setWallEndpoint: (id: string, which: WallEndpoint, point: Vec2) => void;
   // Replace a flag's embedded FlagDesign wholesale (the flag editor's Apply). ONE
   // undoable, coalesced commit: the editor edits a WORKING COPY in local state and
@@ -472,6 +484,36 @@ export const useStore = create<StoreState>((set, get) => {
         if (piece) Object.assign(piece, patch);
         return design;
       });
+    },
+
+    addFlagsAlong: (hostId, opts = {}) => {
+      const host = get().design.pieces.find((p) => p.id === hostId);
+      if (!host) return [];
+      const { design: chosenDesign, ...alongOpts } = opts;
+      const placements = flagPositionsAlong(host, alongOpts);
+      if (placements.length === 0) return [];
+      // Each generated flag EMBEDS its own copy of the design (the embed model),
+      // so they are indistinguishable from hand-placed flags — independently
+      // selectable / movable / editable / deletable afterward. Generate-once: they
+      // carry no link back to the host.
+      const source = chosenDesign ?? createDefaultFlagDesign();
+      const flags: Flag[] = placements.map((pl) => ({
+        id: nextId(),
+        kind: "flag",
+        position: { ...pl.position },
+        base: pl.base,
+        rotation: 0,
+        design: clone(source),
+        poleHeight: DEFAULT_FLAG_POLE_HEIGHT,
+        clothWidth: DEFAULT_FLAG_CLOTH_WIDTH,
+      }));
+      const ids = flags.map((f) => f.id);
+      // ONE undoable step: all the flags appear (and undo removes them) together.
+      commit((design) => {
+        design.pieces.push(...flags);
+        return design;
+      });
+      return ids;
     },
 
     updateFlagDesign: (id, flagDesign) => {

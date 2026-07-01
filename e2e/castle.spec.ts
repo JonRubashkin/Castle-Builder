@@ -1418,6 +1418,169 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect((await library(page))[0].name).toBe("Survivor");
   });
 
+  // --- Auto-place flags along a host (2Fe) -----------------------------------
+
+  test("add flags along a wall: N independent flags, one undo removes them all", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    // A wall of length 12 (top at base + height = 4), selected via the accessor.
+    const { wallId, wallTop } = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const id = api
+        .getState()
+        .addWallRun({ position: { x: -6, y: 0 }, end: { x: 6, y: 0 }, base: 0 });
+      const w = api.getPieces().find((p: any) => p.id === id);
+      api.getState().selectPiece(id);
+      return { wallId: id, wallTop: w.base + w.height };
+    });
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    await expect(page.getByRole("heading", { name: "Wall" })).toBeVisible();
+
+    // Default spacing (4) over usable length 10 → 3 flags. Click the panel action.
+    await page.getByRole("button", { name: "Add flags along" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(4); // wall + 3 flags
+
+    const flagPieces = (await pieces(page)).filter((p) => p.kind === "flag");
+    expect(flagPieces).toHaveLength(3);
+    // Each generated flag is a real flag seated on the wall top, on its edge line.
+    for (const f of flagPieces) {
+      expect(f.base).toBeCloseTo(wallTop, 6);
+      expect(Math.abs(f.position.y)).toBeLessThan(1e-6); // on z = 0 (the wall line)
+      expect(f.design).toBeTruthy();
+    }
+
+    // ONE undo removes all three flags together (the wall remains).
+    await page.evaluate(() => (window as any).__CASTLE_E2E__.getState().undo());
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    expect((await pieces(page))[0].id).toBe(wallId);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("generated flags are generate-once: resizing the wall does not move them", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    const wallId = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const id = api
+        .getState()
+        .addWallRun({ position: { x: -6, y: 0 }, end: { x: 6, y: 0 }, base: 0 });
+      api.getState().selectPiece(id);
+      return id;
+    });
+    await expect(page.getByRole("heading", { name: "Wall" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Add flags along" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(4);
+
+    const before = (await pieces(page))
+      .filter((p) => p.kind === "flag")
+      .map((f) => f.position)
+      .sort((a, b) => a.x - b.x);
+
+    // Move the wall's end far away — the flags must stay exactly where they were.
+    await page.evaluate((id) => {
+      (window as any).__CASTLE_E2E__
+        .getState()
+        .setWallEndpoint(id, "end", { x: 40, y: 40 });
+    }, wallId);
+
+    const after = (await pieces(page))
+      .filter((p) => p.kind === "flag")
+      .map((f) => f.position)
+      .sort((a, b) => a.x - b.x);
+    expect(after).toEqual(before); // generate-once: no live follow
+  });
+
+  test("a generated flag is an ordinary piece: selectable, editable, deletable", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const id = api
+        .getState()
+        .addWallRun({ position: { x: -6, y: 0 }, end: { x: 6, y: 0 }, base: 0 });
+      api.getState().selectPiece(id);
+    });
+    await page.getByRole("button", { name: "Add flags along" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(4);
+
+    // Select one generated flag and confirm its panel behaves like any flag.
+    const flagId = (await pieces(page)).find((p) => p.kind === "flag").id;
+    await page.evaluate((id) => {
+      (window as any).__CASTLE_E2E__.getState().selectPiece(id);
+    }, flagId);
+    await expect(page.getByRole("heading", { name: "Flag" })).toBeVisible();
+
+    // Edit a param.
+    await page.getByLabel("Pole height").fill("9");
+    await expect
+      .poll(async () => (await pieces(page)).find((p) => p.id === flagId).poleHeight)
+      .toBe(9);
+
+    // It has its own editable embedded design (open + close the editor).
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Flag design editor" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("dialog", { name: "Flag design editor" }),
+    ).toBeHidden();
+
+    // Delete just this one flag; the others (and the wall) remain.
+    await page.getByRole("button", { name: "Delete flag" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(3); // wall + 2 flags left
+  });
+
+  test("flag editor: changing aspect keeps the preview width fixed (no control reflow)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    await expect(page.getByRole("dialog", { name: "Flag design editor" })).toBeVisible();
+
+    const canvas = page.locator(".flag-editor__canvas");
+    const stripesBtn = page.getByRole("button", { name: "Add stripes" });
+
+    const widthAt = async () => (await canvas.boundingBox())!.width;
+    const controlXAt = async () => (await stripesBtn.boundingBox())!.x;
+
+    const w0 = await widthAt();
+    const x0 = await controlXAt();
+
+    // Drive the aspect across its full range; the preview WIDTH and the neighboring
+    // control's X must not move (only the preview height varies). DOM/layout only —
+    // never canvas pixels.
+    await page.getByLabel("Aspect").fill("3");
+    expect(Math.abs((await widthAt()) - w0)).toBeLessThan(1);
+    expect(Math.abs((await controlXAt()) - x0)).toBeLessThan(1);
+
+    await page.getByLabel("Aspect").fill("0.5");
+    expect(Math.abs((await widthAt()) - w0)).toBeLessThan(1);
+    expect(Math.abs((await controlXAt()) - x0)).toBeLessThan(1);
+  });
+
   test("New Castle: Esc dismisses the dialog with no change", async ({ page }) => {
     await openApp(page);
 
