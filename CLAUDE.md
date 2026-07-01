@@ -113,16 +113,25 @@ over). Every piece is a flat top-level object that carries its own stored vertic
   the prior project's "be conservative with anything that auto-mutates the user's
   work" caution. Not now.)
 
-## Data model (schema v1)
+## Data model (schema v2)
 
 This is the persisted design document and the core of the Zustand store. Keep field
-names exactly as written. **Phase 1 only — do not forward-declare speculative fields
-for deferred features** (terrain tiers, parent/child riding, wall↔tower attachment).
-Add fields when the phase that needs them arrives, with a migration if necessary.
+names exactly as written. **Do not forward-declare speculative fields for deferred
+features** (terrain tiers, parent/child riding, wall↔tower attachment). Add fields
+when the phase that needs them arrives, with a migration if necessary.
+
+**Schema history.** v1 was the phase-1 kit (tower / wallRun / gatehouse / gate /
+ramp / moat). **v2 (phase 2Fb) added the `Flag` piece** (below), which embeds its
+own `FlagDesign`. The bump ships with a **stepwise migration**
+(`src/persistence/migrations.ts`): `validateDesign` migrates an older-but-known
+document up to the current version before structurally validating it. v1 → v2 only
+bumps the version (flags are additive / list-compatible — existing `pieces` are
+untouched); a **future unknown version is still refused**. Add the next step to
+`migrateDesign` (never mutate old saves in place) when the schema next changes.
 
 ```ts
 interface Design {
-  schemaVersion: 1;
+  schemaVersion: 2;
   name: string;
   pieces: Piece[];          // flat list — NO levels[]. Every piece carries its own
                             // base height; stacking is explicit vertical placement.
@@ -201,7 +210,18 @@ interface Moat extends PieceBase {
   material: MaterialRef;    // opaque water material — NEVER real transparency
 }
 
-type Piece = Tower | WallRun | Gatehouse | Gate | Ramp | Moat;
+interface Flag extends PieceBase {
+  kind: "flag";             // schema v2 (phase 2Fb): a cloth on a pole
+  // Embeds its FULL FlagDesign (2Fa) — the design travels WITH the piece (the
+  // settled embed model), so a placed flag never changes underneath the user and
+  // Export/Import carries its flags inline. A flag is NOT a face-attach target
+  // (its top is a pole/cloth, not a flat surface) — nothing stacks on it.
+  design: FlagDesign;
+  poleHeight: number;       // meters, staff height
+  clothWidth: number;       // meters (cloth long edge; height = clothWidth/aspect)
+}
+
+type Piece = Tower | WallRun | Gatehouse | Gate | Ramp | Moat | Flag;
 
 interface Vec2 { x: number; y: number; } // a world XZ pair (y holds Z)
 interface Vec3 { x: number; y: number; z: number; }
@@ -353,10 +373,13 @@ builder is unit-tested.
 
 ## Flags (phase 2F)
 
-Phase 2F adds heraldic **flags** as a self-contained feature, kept deliberately
-**separate from the phase-1 `Design`/`Piece` schema** (the flag *piece* and its
-schema bump land in **2Fb**, not before). Everything flag lives under
-`src/flags/`.
+Phase 2F adds heraldic **flags** as a self-contained feature. The `FlagDesign`
+model + renderer were kept deliberately **separate from the phase-1
+`Design`/`Piece` schema** through 2Fa; the flag *piece* and its **schema bump to
+v2** landed in **2Fb** (now done — see the data model + the flag-piece bullet
+below). The `FlagDesign` model, renderer, and symbol library live under
+`src/flags/`; the flag *piece* (builder / footprint / mesh) lives with the other
+pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture`.
 
 - **The model — a composed layer stack ("Approach A").** A `FlagDesign`
   (`src/flags/types.ts`) is `{ aspect, layers[] }`, where `layers` draw
@@ -390,7 +413,23 @@ schema bump land in **2Fb**, not before). Everything flag lives under
   the raster itself is **not pixel-tested**. `flagTexture(design)`
   (`src/flags/flagTexture.ts`) wraps the canvas into a Three.js texture through the
   material system's **shared** `canvasToTexture` helper (`src/materials/textures.ts`)
-  — NOT a parallel texture path — for the flag piece to consume in 2Fb.
+  — NOT a parallel texture path — for the flag piece to consume (2Fb).
+- **The flag piece (2Fb, built).** A `Flag` piece (schema v2 — see the data model)
+  is a **pole/staff + a static cloth**, from a pure builder
+  (`src/geometry/flagBuilder.ts`: `buildFlag` → a thin cylinder pole + a cloth
+  rectangle `clothWidth × clothWidth/aspect` flying out along local +X from the
+  pole top) with one footprint helper (`flagFootprint.ts`: the cloth's oriented
+  rectangle, anchored at the pole — the big visible click target). The cloth is
+  skinned by `flagTexture(flag.design)` in `FlagMesh` — **OPAQUE, double-sided,
+  slightly curved** (a render-only static wave so it doesn't read as flat
+  cardboard; **no animation/waving** — deferred); the pole uses a timber solid.
+  Placement is **single-anchor** (ground-raycast + face-attach via
+  `resolveSupportAt`, exactly like the tower/gate), a new flag seeded with a
+  default `FlagDesign` (`createDefaultFlagDesign`) until the 2Fc editor. Select /
+  gizmo-move / **15° rotation** / delete + a param panel (poleHeight, clothWidth,
+  rotation) reuse the shared machinery. A flag is **NOT a face-attach target**
+  (excluded from `isFaceAttachSurface` / `flatTopWorldY` → also excluded as a
+  Place-on-top target), matching the moat/ramp exclusions.
 - **Dev QA route.** A dev-only `#flags` hash route (`src/flags/dev/FlagQA.tsx`,
   wired in `main.tsx`, analogous to the prior project's `#catalog`) renders the
   hardcoded `FLAG_EXAMPLES` (solid, tricolor, quartered, field+charge, busy) plus
@@ -403,12 +442,14 @@ schema bump land in **2Fb**, not before). Everything flag lives under
   piece (no live link). The library persists client-side alongside the castle
   autosave.
 - **Phase-2F sub-plan (build in order; one slice = one coherent commit):**
-  - **2Fa (this slice):** the `FlagDesign` layer-stack model, the symbol library,
+  - **2Fa (DONE):** the `FlagDesign` layer-stack model, the symbol library,
     the pure renderer + `flagTexture`, and the `#flags` QA route. **No editor, no
     placement, no flag piece, no library UI.**
-  - **2Fb:** the **flag piece** (a cloth mesh skinned by `flagTexture`) + its
-    schema bump (with a migration) + placement; a placed flag **embeds** its
-    `FlagDesign`.
+  - **2Fb (DONE — this slice):** the **flag piece** (a cloth mesh skinned by
+    `flagTexture`) + its **schema bump to v2** (with a v1→v2 migration) +
+    single-anchor placement (ground / face-attach); a placed flag **embeds** its
+    `FlagDesign`. Select / move / 15° rotate / delete + a pole/cloth param panel.
+    **No editor yet** — placement seeds a default design (2Fc adds editing).
   - **2Fc:** the **flag editor** UI (add/reorder/edit layers; pick field/division,
     stripes, charges) operating on the selected flag's embedded design.
   - **2Fd:** the **saved-flags library** (named saves, overwrite-or-save-as, its
@@ -430,10 +471,12 @@ schema bump land in **2Fb**, not before). Everything flag lives under
 - No real lighting/illumination design; no measurements/annotations beyond simple
   piece dimensions in the panel.
 - Accessibility basics only: focus styles, button labels, no exotic ARIA work.
-- **Flags: 2Fa is the model + symbol library + renderer + `#flags` QA route
-  ONLY.** No flag editor, no flag placement, no flag piece / schema change, no
-  saved-flags library or its UI, no auto-place-along, no Approach B freeform paint,
-  no flag animation — all are later 2F slices or deferred (see "Flags (phase 2F)").
+- **Flags: 2Fa (model + symbols + renderer + `#flags` route) and 2Fb (the flag
+  piece + schema v2 + placement) are DONE.** The next slice **2Fc** adds the flag
+  **editor** ONLY — still **no** saved-flags library or its UI (2Fd), **no**
+  auto-place-along (2Fe), **no** Approach B freeform paint (2Ff), **no** flag
+  animation/waving — all deferred (see "Flags (phase 2F)"). Placement uses a
+  default embedded design until the editor exists.
 
 ## Phase plan
 
@@ -657,10 +700,13 @@ generate-once-and-explicit-beats-clever-auto lesson.
 - **1e (navigation):** add the **ramp/stair** with its own pure tested geometry
   helper. **Built last.**
 - **2F (flags):** heraldic flags as a self-contained feature, sub-phased 2Fa–2Fe
-  (2Ff / Approach B deferred). **2Fa is complete:** the `FlagDesign` layer-stack
-  model, the SVG symbol library, the pure renderer + `flagTexture`, and the
-  `#flags` QA route (see "Flags (phase 2F)"). 2Fb+ add the flag piece, editor,
-  library, and auto-place.
+  (2Ff / Approach B deferred). **2Fa + 2Fb are complete:** 2Fa shipped the
+  `FlagDesign` layer-stack model, the SVG symbol library, the pure renderer +
+  `flagTexture`, and the `#flags` QA route; **2Fb** added the **flag piece** (pole
+  + cloth skinned by `flagTexture`), the **schema bump to v2** (with a v1→v2
+  migration), and single-anchor placement (a placed flag **embeds** its
+  `FlagDesign`) — see "Flags (phase 2F)". 2Fc+ add the editor, library, and
+  auto-place.
 - **2+:** raised terrain (tiers / motte via `groundHeightAt`), parent/child
   auto-riding, wall↔tower attachment, more pieces, more freedom. Do not start any
   of this without instruction.

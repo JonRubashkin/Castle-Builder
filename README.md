@@ -19,6 +19,13 @@ runs client-side — no backend.
 > and it computes its own params to literally span them (with a graceful default
 > when the top click misses a surface). `CLAUDE.md` is the source of truth for
 > conventions, the data model, and scope.
+>
+> **Flags (phase 2F) are underway.** A **flag** is now a real placeable piece — a
+> cloth on a pole you plant one at a time (on the ground or on top of a piece),
+> carrying its **own embedded heraldic design** rendered onto the cloth. This
+> bumped the schema to **v2** (with a v1→v2 migration). The **flag editor** (to
+> change the field / stripes / charges) arrives in the next slice (2Fc); until
+> then a placed flag uses a sensible default design.
 
 ## Tech stack
 
@@ -52,13 +59,14 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Gate tool** | Click the ground to place a **freestanding timber gate** (a portcullis lattice) at the grid-snapped cursor; same ghost / face-attach behavior as the tower. It's a standalone piece — position it in a gatehouse archway or against a wall; it does **not** cut a real opening (no CSG in phase 1). Rotate it (15° steps in the panel) to face across the archway. |
 | **Moat tool** | Places **opaque water**. Pick a **sub-mode** in the panel (shown when the Moat tool is active): **Ring** (default) is a single click — an annulus with editable inner/outer radii; **Segment** is **two clicks** (start, then end) — a straight strip with an editable width. A moat is **ground-only** (it never face-attaches) and sits on its own water layer so it can't z-fight the ground. `Esc` cancels an in-progress segment. |
 | **Ramp tool** | A **connection**, placed with **two clicks**: click a **bottom** (on the ground, or on a flat piece top via face-attach), then a **top surface** (a tower / gatehouse / wall top). The ramp computes its own `rise` / `run` / heading to **literally span** the two points — a live preview shows the resulting rise/run while you aim. The heading is **exact** (the ramp aims precisely at the connection — **no 15° rotation snap**, unlike every other piece). The connection is literal (no slope-smartness), so a steep result is honest feedback; tune it in the panel afterward. If the **top click misses a real surface** (empty ground), it falls back to a **tunable default ramp** from the bottom anchor instead of getting stuck. `Esc` cancels. A ramp can sit **on** flat tops, but **nothing face-attaches onto a ramp** (its top is a slope). |
-| **Face-attach** | With the tower / gatehouse / wall / **gate** / **ramp** tool, place over an existing piece's footprint: the new piece (or a ramp's **bottom** anchor) seats on that piece's **top** (its stored base = the lower piece's top), instead of on the ground. A wall seats at its **start** anchor's support height. (The moat is exempt — it always seats on the ground; and a ramp is never a face-attach **target**.) |
+| **Flag tool** | Click the ground to plant a **flag** (a cloth on a pole) at the grid-snapped cursor — one at a time; same ghost / face-attach behavior as the tower, so a flag can plant on the ground or **on top of a piece** (a flag on a tower top is a real castle move). Each flag carries its **own embedded heraldic design** (a default until the flag editor lands in 2Fc), rendered onto the cloth. `Esc` cancels; the tool stays active. A flag is **not** a face-attach **target** — nothing stacks on a flag (its top is a pole/cloth). |
+| **Face-attach** | With the tower / gatehouse / wall / **gate** / **ramp** / **flag** tool, place over an existing piece's footprint: the new piece (or a ramp's **bottom** anchor) seats on that piece's **top** (its stored base = the lower piece's top), instead of on the ground. A wall seats at its **start** anchor's support height. (The moat is exempt — it always seats on the ground; and the ramp / **flag** are never face-attach **targets**.) |
 | **Select tool** | Click a piece to select it; click empty ground to deselect. |
 | Move a selected piece | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**, subject to the **Keep on ground** toggle below. For a wall, the gizmo moves the **whole wall** (both endpoints together). |
 | **Keep on ground** | A toggle tab on the **right of the viewport**, shown **while a piece is selected** (hidden otherwise). When **on**, a moved piece ignores face-attach and always seats on the ground (never climbs onto other pieces); when **off** (the default), moving uses the normal face-attach rule. It **persists until you turn it off** (a saved preference — **not** part of the design and **not** in undo history) and applies to the **move/drag** path (initial placement of a new piece is unaffected). |
-| **Place on top of…** | A button in a selected piece's properties panel (every piece **except the moat**). Click it to **arm** a one-shot action (a banner + crosshair prompt you to click a target); the **next click on another piece** seats the selected piece on **that piece's top**, centered on it (a wall recenters both endpoints), as **one undo step** — the piece stays selected and the action ends. Overhang is fine (a larger piece just overhangs). **Excluded targets: the moat and ramps** (no flat top) — clicking one stays armed. `Esc`, a click on empty ground, or clicking the selected piece itself **cancels** with the selection unchanged. |
+| **Place on top of…** | A button in a selected piece's properties panel (every piece **except the moat**). Click it to **arm** a one-shot action (a banner + crosshair prompt you to click a target); the **next click on another piece** seats the selected piece on **that piece's top**, centered on it (a wall recenters both endpoints), as **one undo step** — the piece stays selected and the action ends. Overhang is fine (a larger piece just overhangs). **Excluded targets: the moat, ramps, and flags** (no flat top) — clicking one stays armed. `Esc`, a click on empty ground, or clicking the selected piece itself **cancels** with the selection unchanged. |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (it **snaps to a nearby tower / gatehouse anchor**, shown by a snap ring, else the 0.1 m grid; one undo step). Start/End coordinates are also editable as number fields in the panel (the precise/keyboard path — plain grid, no anchor snap). |
-| Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim). Each piece carries a **material** (solid color or a stone / brick / thatch / water pattern). |
+| Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim), **flag** (pole height, cloth width, rotation — full heraldic design editing arrives with the flag editor in 2Fc). Each castle piece carries a **material** (solid color or a stone / brick / thatch / water pattern); a flag's cloth is skinned by its embedded design instead. |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
 | **New Castle** | A top-bar button that clears the current design and starts fresh. It asks for **confirmation first** (Cancel / `Esc` / clicking the backdrop all dismiss with no change; only **Start new** resets). The reset is destructive and **irreversible once autosave overwrites** — **Export JSON first** if you want to keep the current castle. |
@@ -68,8 +76,12 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 
 Your work **autosaves into this browser only** (a single `localStorage` slot).
 Clearing browser data erases it, so use **Export JSON** to keep a backup and
-**Import JSON** to restore it. Designs carry a `schemaVersion`; a file from a
-newer, unknown version is refused on open rather than risking corruption.
+**Import JSON** to restore it. Designs carry a `schemaVersion` (currently **v2**);
+an **older** design is **migrated** forward on open (v1 → v2 just adds flags,
+leaving existing pieces untouched), while a file from a **newer, unknown** version
+is refused rather than risking corruption. An exported castle carries its flags
+inline (each flag embeds its own design), so Export/Import round-trips them for
+free.
 **New Castle** clears everything to a fresh empty design (after confirmation) and
 autosaves the empty design — so a later reload resumes empty, not the old castle.
 The reset runs through one atomic store action (`newDesign`) that also clears the
@@ -87,10 +99,14 @@ undoable step.)
 ## Flags (phase 2F)
 
 Heraldic **flags** are a self-contained feature being built alongside the castle
-kit, kept **separate from the castle `Design`/`Piece` schema**. **Slice 2Fa (the
-current one) ships the foundation only** — the data model, the symbol library, the
-renderer, and a dev QA route. There is **no flag editor, placement, or flag piece
-yet** (those are later 2F slices).
+kit. **Slices 2Fa–2Fb are done.** 2Fa shipped the foundation — the layer-stack
+data model, the symbol library, the renderer, and a dev QA route. **2Fb (this
+slice) adds the flag as a real placeable piece:** a cloth on a pole, planted one
+at a time (ground or face-attach) like any other piece, carrying its **own
+embedded `FlagDesign`** rendered onto the cloth via the 2Fa renderer. This bumped
+the persisted schema to **v2** (with a v1→v2 migration). There is **no flag
+editor yet** — placement seeds a default design; editing the field / stripes /
+charges arrives in **2Fc**.
 
 - **The model — a layer stack.** A `FlagDesign` is `{ aspect, layers[] }` drawn
   **back-to-front**: a **field** (a solid color or a `perPale` / `perFess` /
@@ -103,18 +119,22 @@ yet** (those are later 2F slices).
   (adding one is additive).
 - **The renderer.** `renderFlag(design, canvas)` composites the stack onto an
   offscreen canvas (**opaque**, no real transparency), reusing the material
-  system's canvas→texture path (`flagTexture` yields a Three.js texture for the
-  flag piece to consume in 2Fb). The per-layer layout math is pure and unit-tested;
-  the raster is never pixel-tested.
+  system's canvas→texture path (`flagTexture` yields a Three.js texture). The
+  per-layer layout math is pure and unit-tested; the raster is never pixel-tested.
+- **The flag piece (2Fb).** A flag is a **pole + a static cloth** (a builder in
+  `src/geometry/flagBuilder.ts`, footprint in `flagFootprint.ts`). The cloth is
+  skinned by `flagTexture(flag.design)` — **opaque, double-sided, slightly
+  curved** so it doesn't read as flat cardboard (no waving — deferred). A placed
+  flag **embeds its full `FlagDesign`** (the design travels with the piece), so it
+  never changes underneath you and Export/Import carries it inline.
 - **Dev QA route.** Open **`#flags`** (e.g. `http://localhost:5173/#flags`) — a
   dev-only screen (not in the main app) that renders example flags (solid,
   tricolor, quartered, field+charge, busy) and the full symbol library, so the
-  renderer can be eyeballed before any editor exists.
-- **Planned model (later slices):** a placed flag piece will **embed its own
-  `FlagDesign`** (the design travels with the piece); a separate **saved-flags
-  library** will hold **named** designs with **overwrite-or-save-as** semantics,
-  and placing from it **copies** the design into the piece. Sub-plan: **2Fa** model
-  + library + renderer (done) → **2Fb** flag piece + schema bump + placement →
+  renderer can be eyeballed before the editor exists.
+- **Planned model (later slices):** a separate **saved-flags library** will hold
+  **named** designs with **overwrite-or-save-as** semantics, and placing from it
+  **copies** the design into the piece. Sub-plan: **2Fa** model + library +
+  renderer (**done**) → **2Fb** flag piece + schema bump + placement (**done**) →
   **2Fc** editor → **2Fd** saved-flags library → **2Fe** auto-place-along; **2Ff /
   Approach B** (freeform raster paint) and flag waving are deferred.
 
@@ -131,8 +151,8 @@ the XZ plane. Horizontal grid snap is **0.1 m**, vertical **0.5 m**, rotation
 src/
   geometry/            pure, unit-tested math (grid snapping, ground height,
                        the shared crenellation helper, per-piece builders +
-                       footprints for tower/gatehouse/wall/gate/moat/ramp, the
-                       shared oriented-rectangle footprint, the ring footprint,
+                       footprints for tower/gatehouse/wall/gate/moat/ramp/flag,
+                       the shared oriented-rectangle footprint, the ring footprint,
                        the ramp/stair builder + two-point connection helper,
                        support/face-attach resolution, wall-endpoint anchor
                        snapping, iso camera) — no React, no store
@@ -142,8 +162,11 @@ src/
   flags/               (phase 2F) the FlagDesign layer-stack model, the pure
                        layout math + renderFlag, flagTexture, the hand-authored
                        symbol library (symbols/), and the dev #flags QA route
-  store/               Zustand store, schema v1, undo/redo, ?e2e=1 test accessor
-  persistence/         autosave + JSON export/import + schema validation
+                       (the flag *piece* builder/mesh live under geometry/ +
+                       components/preview, consuming flagTexture)
+  store/               Zustand store, schema v2, undo/redo, ?e2e=1 test accessor
+  persistence/         autosave + JSON export/import + schema validation +
+                       stepwise migrations (migrations.ts, e.g. v1 → v2)
   components/preview/   the R3F scene, ground/grid, pieces, gizmo, placement
   components/ui/        toolbar, properties panel (+ Place-on-top action),
                        Keep-on-ground toggle, place-on-top hint banner,
@@ -187,7 +210,11 @@ Build command `npm run build`, output `dist/`.
   target's center, a two-point wall recenters both endpoints, overhang still
   centers, and the moat/ramp are excluded targets) plus its **store action**
   (arm → target → one undoable placement, stays selected; invalid-target no-op;
-  self-click cancel), and schema validation.
+  self-click cancel), the **flag builder** (pole + cloth dimensions, the
+  aspect-derived cloth height, the cloth footprint), the **v1 → v2 migration**
+  (a v1 fixture loads as v2 with its pieces untouched) and **flag validation** (a
+  flag round-trips its embedded design; malformed flags are rejected), and schema
+  validation.
 - E2E tests cover clean boot, placing a tower, select + delete, undo/redo,
   autosave surviving a reload, toggling crenellations + changing material,
   face-attach, placing a gatehouse (edit/rotate/delete), drawing a wall with two
@@ -203,7 +230,11 @@ Build command `npm run build`, output `dist/`.
   selection / hidden when deselected; persists across reload; keeps a dragged piece
   on the ground), the **"Place on top" action** (arm from the panel, click a target
   → the piece seats on the target's top with centers aligned, stays selected, one
-  undo reverses it; `Esc` while armed cancels with no change), and **New Castle** (Cancel/`Esc` keep the
+  undo reverses it; `Esc` while armed cancels with no change), the **flag piece**
+  (place with the Flag tool → an embedded design + default params; select / edit /
+  rotate / delete; face-attach onto a tower top with an undoable move; nothing
+  stacks onto a flag; **Export → Import round-trips the embedded design** through
+  the validated load path), and **New Castle** (Cancel/`Esc` keep the
   design; confirm clears it + selection + undo history and survives a reload as
   empty). They read app state
   through a test-only accessor exposed at `window.__CASTLE_E2E__` when the page is
