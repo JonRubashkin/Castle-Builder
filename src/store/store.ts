@@ -88,6 +88,13 @@ export interface StoreState {
   // non-null, piece mutations are previewed live without touching history; the
   // snapshot is what gets pushed to `past` when the interaction commits.
   pendingSnapshot: Design | null;
+  // Center-on-support defers its XZ anchor snap to the DROP (commitTransient),
+  // not the live drag. During a gizmo drag the mesh's group is driven imperatively
+  // by TransformControls from the pointer; moving the anchor mid-drag would fight
+  // that (two writers on one object → jitter, the piece never settles on top). So
+  // the live move keeps the anchor tracking the pointer (height still resolved) and
+  // stashes the target center here; commitTransient applies it when the drag ends.
+  pendingCenterSnap: { id: string; position: Vec2; end?: Vec2 } | null;
 
   // --- tool / selection ---
   setTool: (tool: Tool) => void;
@@ -183,6 +190,7 @@ export const useStore = create<StoreState>((set, get) => {
     selectedId: null,
     history: { past: [], future: [] },
     pendingSnapshot: null,
+    pendingCenterSnap: null,
     bootNonce: 0,
 
     setTool: (tool) => set({ tool }),
@@ -377,7 +385,7 @@ export const useStore = create<StoreState>((set, get) => {
     beginTransient: () => {
       // Only one interaction at a time; capture the pre-interaction snapshot.
       if (get().pendingSnapshot === null) {
-        set({ pendingSnapshot: clone(get().design) });
+        set({ pendingSnapshot: clone(get().design), pendingCenterSnap: null });
       }
     },
 
@@ -409,6 +417,7 @@ export const useStore = create<StoreState>((set, get) => {
           // truth — no hardcoded ground-y and no parallel placement logic; the
           // active placement mode is read HERE and passed straight through.
           // (Walls resolve at the start anchor, `position`.)
+          let pendingCenterSnap: StoreState["pendingCenterSnap"] = null;
           if (piece.kind === "moat") {
             // A moat is inherently ground-only; the toggles don't change that.
             piece.base = groundOnlyBase(piece.position);
@@ -416,20 +425,29 @@ export const useStore = create<StoreState>((set, get) => {
             const others = design.pieces.filter((p) => p.id !== id);
             const support = resolveSupportAt(piece.position, others, state.placementMode);
             piece.base = support.base;
-            // Center-on-support: snap the moved piece's anchor onto the supporting
-            // piece's center (reusing the support's own footprint anchor — never a
-            // separately computed center). Height still comes from face-attach
-            // (base above is unchanged). A two-point piece (a wall run) shifts both
-            // endpoints rigidly by the same delta so it keeps its shape.
+            // Center-on-support: the anchor must snap onto the supporting piece's
+            // center (its own footprint anchor — never a separately computed one),
+            // but NOT during the live drag: the mesh's group is driven imperatively
+            // by TransformControls from the pointer, so moving the anchor here would
+            // fight it (jitter, the piece never lands on top). Instead keep the
+            // anchor tracking the pointer (the height/base above already resolved
+            // via face-attach) and stash the target center; commitTransient applies
+            // it on drop. A two-point piece (a wall run) shifts both endpoints
+            // rigidly by the same delta so it keeps its shape.
             if (support.center) {
-              const dx = support.center.x - piece.position.x;
-              const dy = support.center.y - piece.position.y;
+              const snap: NonNullable<StoreState["pendingCenterSnap"]> = {
+                id,
+                position: { ...support.center },
+              };
               if ("end" in piece && piece.end) {
-                piece.end = { x: piece.end.x + dx, y: piece.end.y + dy };
+                const dx = support.center.x - piece.position.x;
+                const dy = support.center.y - piece.position.y;
+                snap.end = { x: piece.end.x + dx, y: piece.end.y + dy };
               }
-              piece.position = { ...support.center };
+              pendingCenterSnap = snap;
             }
           }
+          return { design, pendingCenterSnap };
         }
         return { design };
       });
@@ -454,16 +472,37 @@ export const useStore = create<StoreState>((set, get) => {
     commitTransient: () => {
       const snapshot = get().pendingSnapshot;
       if (snapshot === null) return;
-      set((state) => ({
-        history: pushPast(state.history, snapshot),
-        pendingSnapshot: null,
-      }));
+      set((state) => {
+        // Apply a deferred center-on-support snap now that the drag has ended
+        // (see pendingCenterSnap): the anchor jumps onto the support's center
+        // without fighting the live gizmo. The height was already resolved during
+        // the drag; here we only move the XZ anchor (and, for a two-point piece,
+        // its far endpoint rigidly).
+        let design = state.design;
+        const snap = state.pendingCenterSnap;
+        if (snap) {
+          design = clone(design);
+          const piece = design.pieces.find((p) => p.id === snap.id);
+          if (piece) {
+            piece.position = { ...snap.position };
+            if (snap.end && "end" in piece && piece.end) {
+              piece.end = { ...snap.end };
+            }
+          }
+        }
+        return {
+          design,
+          history: pushPast(state.history, snapshot),
+          pendingSnapshot: null,
+          pendingCenterSnap: null,
+        };
+      });
     },
 
     cancelTransient: () => {
       const snapshot = get().pendingSnapshot;
       if (snapshot === null) return;
-      set({ design: snapshot, pendingSnapshot: null });
+      set({ design: snapshot, pendingSnapshot: null, pendingCenterSnap: null });
     },
 
     undo: () => {
@@ -479,6 +518,7 @@ export const useStore = create<StoreState>((set, get) => {
           },
           selectedId: selectionStillValid(prev, state.selectedId),
           pendingSnapshot: null,
+          pendingCenterSnap: null,
         };
       });
     },
@@ -496,6 +536,7 @@ export const useStore = create<StoreState>((set, get) => {
           },
           selectedId: selectionStillValid(next, state.selectedId),
           pendingSnapshot: null,
+          pendingCenterSnap: null,
         };
       });
     },
@@ -509,6 +550,7 @@ export const useStore = create<StoreState>((set, get) => {
         selectedId: null,
         history: { past: [], future: [] },
         pendingSnapshot: null,
+        pendingCenterSnap: null,
       }),
 
     newDesign: () =>
@@ -518,6 +560,7 @@ export const useStore = create<StoreState>((set, get) => {
         selectedId: null,
         history: { past: [], future: [] },
         pendingSnapshot: null,
+        pendingCenterSnap: null,
         // Bump the boot counter → the editor tree remounts clean (clearing any
         // component-local in-progress placement/drag state too).
         bootNonce: state.bootNonce + 1,
