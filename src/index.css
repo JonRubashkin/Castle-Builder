@@ -204,6 +204,27 @@ button:disabled {
   color: var(--accent-strong);
 }
 
+/* "Add flags along" auto-place control (host piece panels: wall / gatehouse). */
+.panel__flags-along {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.panel__subhead {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.panel__flags-along-btn {
+  text-align: left;
+}
+
 /* Viewport banner shown while "Place on top" is armed. */
 .place-on-top-hint {
   position: absolute;
@@ -350,20 +371,28 @@ button:disabled {
   overflow: auto;
 }
 
-.flag-editor__preview {
-  flex: 0 0 320px;
-}
-
 .flag-editor__body {
   display: flex;
   gap: 20px;
   align-items: flex-start;
 }
 
+/* Fixed-width preview column so the right-hand controls never shift when the
+   aspect changes (2Fe layout fix). */
 .flag-editor__preview {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 0 0 300px;
+}
+
+/* Reserves the preview's MAX height with a fixed width; the canvas is pinned
+   top-left, so its varying height (with aspect) never reflows the controls below
+   or beside it. */
+.flag-editor__canvas-box {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
   flex: 0 0 auto;
 }
 

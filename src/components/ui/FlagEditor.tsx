@@ -30,11 +30,20 @@ import {
 } from "../../flags/editorOps";
 import {
   chargeAtPoint,
+  flagContainRect,
+  previewBoxSize,
   previewPixelToFlagCoord,
 } from "../../flags/editorPicking";
 import { FlagLibraryPanel } from "./FlagLibraryPanel";
 
-const PREVIEW_HEIGHT = 220; // px — the preview canvas's intrinsic height
+// The preview is pinned top-left in a FIXED-WIDTH box (2Fe layout fix): the width
+// never changes, so the controls beside it never move; only the HEIGHT varies with
+// the flag's aspect (height = width / aspect, clamped to [MIN, MAX]). The box below
+// reserves the MAX height, so the varying height never reflows the controls under
+// it either. Within the box the flag is letterboxed/centered (never stretched).
+const PREVIEW_WIDTH = 300; // px — the fixed dimension (never changes)
+const PREVIEW_MIN_HEIGHT = 140; // px — floor for very wide flags
+const PREVIEW_MAX_HEIGHT = 300; // px — ceiling for very square/tall flags
 
 // --- small shared controls ---------------------------------------------------
 
@@ -366,23 +375,55 @@ export function FlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void 
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  // Live preview: draw the working design via the shared renderFlag, then outline
-  // the selected charge (a render-only cue; never pixel-tested).
+  // The fixed-width display box for the current aspect (only the height varies).
+  const box = previewBoxSize(
+    design.aspect,
+    PREVIEW_WIDTH,
+    PREVIEW_MIN_HEIGHT,
+    PREVIEW_MAX_HEIGHT,
+  );
+
+  // Live preview: render the working design (via the shared renderFlag) onto an
+  // offscreen canvas sized to its aspect, then draw it LETTERBOXED/centered into
+  // the fixed-width display box (never stretched), then outline the selected
+  // charge in that same content rect (a render-only cue; never pixel-tested).
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    renderFlag(design, canvas, PREVIEW_HEIGHT);
+    const display = previewBoxSize(
+      design.aspect,
+      PREVIEW_WIDTH,
+      PREVIEW_MIN_HEIGHT,
+      PREVIEW_MAX_HEIGHT,
+    );
+    canvas.width = Math.round(display.width);
+    canvas.height = Math.round(display.height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Opaque letterbox backdrop (the bars only ever show when the flag can't fill
+    // the clamped box); then draw the flag into its "contain" rect.
+    ctx.fillStyle = "#1b1f27";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const offscreen = document.createElement("canvas");
+    renderFlag(design, offscreen);
+    const fit = flagContainRect(
+      { width: canvas.width, height: canvas.height },
+      design.aspect,
+    );
+    ctx.drawImage(offscreen, fit.offsetX, fit.offsetY, fit.dispW, fit.dispH);
+
     if (selected === null) return;
     const layer = design.layers[selected];
     if (!layer || layer.kind !== "charge") return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const t = chargeTransform(layer, canvas.width, canvas.height, getSymbol(layer.symbolId).viewBox);
+    // The charge transform lives in the CONTENT rect (the letterboxed flag), so
+    // offset it by the letterbox bars — hit-test and outline stay in one space.
+    const t = chargeTransform(layer, fit.dispW, fit.dispH, getSymbol(layer.symbolId).viewBox);
     ctx.save();
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
-    ctx.strokeRect(t.left, t.top, t.width, t.height);
+    ctx.strokeRect(fit.offsetX + t.left, fit.offsetY + t.top, t.width, t.height);
     ctx.restore();
   }, [design, selected]);
 
@@ -464,14 +505,21 @@ export function FlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void 
         <h2 className="modal__title">Edit flag design</h2>
 
         <div className="flag-editor__body">
-          {/* Left: the live preview + aspect. */}
+          {/* Left: the live preview + aspect. The box reserves the MAX height and
+              a fixed width so changing the aspect (which only varies the canvas
+              height) never reflows the surrounding controls. */}
           <div className="flag-editor__preview">
-            <canvas
-              ref={canvasRef}
-              className="flag-editor__canvas"
-              style={{ height: PREVIEW_HEIGHT, width: "auto", touchAction: "none" }}
-              onPointerDown={onPreviewPointerDown}
-            />
+            <div
+              className="flag-editor__canvas-box"
+              style={{ width: PREVIEW_WIDTH, height: PREVIEW_MAX_HEIGHT }}
+            >
+              <canvas
+                ref={canvasRef}
+                className="flag-editor__canvas"
+                style={{ width: box.width, height: box.height, touchAction: "none" }}
+                onPointerDown={onPreviewPointerDown}
+              />
+            </div>
             <RangeField
               label="Aspect"
               value={design.aspect}
