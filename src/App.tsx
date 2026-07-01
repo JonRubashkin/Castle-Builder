@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Scene } from "./components/preview/Scene";
 import { Toolbar } from "./components/ui/Toolbar";
 import { PiecePanel } from "./components/ui/PiecePanel";
+import { PlacementModeTabs } from "./components/ui/PlacementModeTabs";
 import { FileBar } from "./components/ui/FileBar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAutosave } from "./hooks/useAutosave";
@@ -24,6 +25,9 @@ function Editor() {
       <div className="app__body">
         <main className="app__viewport">
           <Scene />
+          {/* Placement-mode toggle tabs — right side of the viewport, shown only
+              while a piece is selected. */}
+          <PlacementModeTabs />
         </main>
         <PiecePanel />
       </div>

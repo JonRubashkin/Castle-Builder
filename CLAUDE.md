@@ -509,6 +509,35 @@ One scoping note still holds: **working-plane-at-arbitrary-height placement is
 deferred** — the ramp's top click must hit a real surface; empty-air top points are
 a phase 2+ deferral (face-attach covers the stacking these phases need).
 
+**Post-1e refinement — placement-mode toggles (still phase 1, not new scope):**
+Two toggle tabs on the right of the viewport, shown **while a piece is selected**
+(hidden otherwise), change how a moved/dragged piece resolves its support. They
+are a **persisted UI preference — NOT part of the `Design`, NOT in undo history**
+(the snapToWall-style pref pattern): stored in their own `localStorage` slot
+(`savePlacementMode` / `loadPlacementMode` in `src/persistence/storage.ts`),
+hydrated into the store on boot, survive reload, and are untouched by `newDesign`.
+- Modeled as ONE mutually-exclusive enum `placementMode: "normal" | "groundOnly"
+  | "centerOnSupport"` on the store (default `"normal"` = both off), set through
+  the `setPlacementMode` action — a single enum makes the two toggles inherently
+  exclusive (turning one on clears the other). The tabs
+  (`components/ui/PlacementModeTabs.tsx`) toggle a mode on/off (clicking the active
+  one returns to `"normal"`).
+- The behavior routes through the ONE shared support path, **not a duplicate**:
+  `resolveSupportAt(anchor, pieces, mode)` is mode-aware — `groundOnly`
+  short-circuits to the ground (skips surface hits; base still routed through
+  `groundHeightAt`), `centerOnSupport` resolves normally and additionally reports
+  the supporting piece's **center** (its own `position` anchor — the existing
+  footprint source of truth, never a separately computed center), `normal` is
+  unchanged. The mode is **read in the move path**: the store's
+  `setPiecePositionTransient` passes `state.placementMode` straight into
+  `resolveSupportAt`; when a `center` comes back it snaps the moved piece's anchor
+  onto it (height still from face-attach; a two-point wall shifts both endpoints
+  rigidly). The moat stays inherently ground-only regardless of the toggles.
+- **Scoped to the move/drag path** (a selected piece being dragged) — initial
+  placement of a NEW piece is deliberately unaffected (the tabs only show with a
+  selection, and the placement path calls `resolveSupportAt` with the default
+  `"normal"` mode).
+
 - **1a (foundation):** fresh Vite + React + TS repo; Zustand store + schema v1 +
   undo/redo; the 3D scene with the carried-over orthographic iso camera + orbit/zoom
   + below-ground lock; the ground-plane grid; `groundHeightAt` (returns 0); the

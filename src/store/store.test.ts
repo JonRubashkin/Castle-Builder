@@ -212,6 +212,73 @@ describe("store: a gizmo move resolves base through the same support rule", () =
   });
 });
 
+describe("store: placement-mode toggles (persisted pref, mode-aware move path)", () => {
+  beforeEach(() => {
+    reset();
+    useStore.getState().setPlacementMode("normal"); // start from both-off
+  });
+
+  const tower = (id: string) =>
+    useStore.getState().design.pieces.find((p) => p.id === id) as Tower;
+
+  it("setPlacementMode enforces mutual exclusivity (turning one on clears the other)", () => {
+    useStore.getState().setPlacementMode("groundOnly");
+    expect(useStore.getState().placementMode).toBe("groundOnly");
+    // Turning the other on clears the first — a single enum can only hold one.
+    useStore.getState().setPlacementMode("centerOnSupport");
+    expect(useStore.getState().placementMode).toBe("centerOnSupport");
+    // Back to normal (both off).
+    useStore.getState().setPlacementMode("normal");
+    expect(useStore.getState().placementMode).toBe("normal");
+  });
+
+  it("groundOnly: a piece dragged over another stays on the ground (never climbs)", () => {
+    useStore.getState().addTower(at(0, 0)); // ground, height 8
+    const moverId = useStore.getState().addTower(at(50, 50));
+    useStore.getState().setPlacementMode("groundOnly");
+
+    useStore.getState().beginTransient();
+    // Anchor lands squarely over the lower tower — but groundOnly ignores it.
+    useStore.getState().setPiecePositionTransient(moverId, { x: 0, y: 0 });
+    expect(tower(moverId).base).toBe(0); // ground, not the tower top
+    expect(tower(moverId).position).toEqual({ x: 0, y: 0 });
+  });
+
+  it("centerOnSupport: a piece dragged onto another centers its XZ on that piece", () => {
+    const lowerId = useStore.getState().addTower(at(3, -2)); // ground, height 8
+    const moverId = useStore.getState().addTower(at(50, 50));
+    const lower = tower(lowerId);
+    useStore.getState().setPlacementMode("centerOnSupport");
+
+    useStore.getState().beginTransient();
+    // Drop the mover inside the lower tower's footprint but off its center.
+    useStore.getState().setPiecePositionTransient(moverId, { x: 3.5, y: -1.5 });
+    // XZ snaps to the supporting piece's anchor; base is still the face-attach top.
+    expect(tower(moverId).position).toEqual({ x: 3, y: -2 });
+    expect(tower(moverId).base).toBe(lower.base + lower.height);
+  });
+
+  it("centerOnSupport over open ground leaves the anchor where it is (no surface)", () => {
+    const moverId = useStore.getState().addTower(at(50, 50));
+    useStore.getState().setPlacementMode("centerOnSupport");
+    useStore.getState().beginTransient();
+    useStore.getState().setPiecePositionTransient(moverId, { x: 20, y: 20 });
+    expect(tower(moverId).position).toEqual({ x: 20, y: 20 });
+    expect(tower(moverId).base).toBe(0);
+  });
+
+  it("the placement mode is NOT part of the design and survives undo", () => {
+    const id = useStore.getState().addTower(at(0, 0));
+    useStore.getState().setPlacementMode("groundOnly");
+    // A committed mutation + undo should not touch the pref.
+    useStore.getState().updatePiece(id, { height: 10 });
+    useStore.getState().undo();
+    expect(useStore.getState().placementMode).toBe("groundOnly");
+    // And it is not stored on the design document.
+    expect("placementMode" in useStore.getState().design).toBe(false);
+  });
+});
+
 describe("store: newDesign (the New Castle reset)", () => {
   beforeEach(reset);
 
