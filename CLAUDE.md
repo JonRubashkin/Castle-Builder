@@ -351,6 +351,73 @@ builder is unit-tested.
 - Keep `README.md` current: how to run, current feature list, controls/shortcuts.
 - **Update README + this CLAUDE.md every time** behavior or scope changes.
 
+## Flags (phase 2F)
+
+Phase 2F adds heraldic **flags** as a self-contained feature, kept deliberately
+**separate from the phase-1 `Design`/`Piece` schema** (the flag *piece* and its
+schema bump land in **2Fb**, not before). Everything flag lives under
+`src/flags/`.
+
+- **The model — a composed layer stack ("Approach A").** A `FlagDesign`
+  (`src/flags/types.ts`) is `{ aspect, layers[] }`, where `layers` draw
+  **back-to-front** (index 0 underneath). Three layer kinds:
+  - **field** — the background: a `solid` color, or a `division` (`perPale` /
+    `perFess` / `perBend` / `quarterly`) with one color per resulting section.
+  - **stripes** — N equal parallel bands (`horizontal` / `vertical` / `diagonal`,
+    `count`, per-band `colors` cycled) — the "many different lines" case.
+  - **charge** — a preset library symbol (`symbolId`, normalized `x`/`y` in
+    `0..1`, `scale`, `color`, optional `rotation`).
+  Field names are load-bearing (later slices depend on them). A `FlagDesign` is
+  plain data and **round-trips through JSON** (Export/Import works for free).
+  This is Approach A only — **freeform raster paint is Approach B, deferred**
+  (do not build or stub it).
+- **The symbol (charge) library** (`src/flags/symbols/`). Hand-authored SVG path
+  silhouettes keyed by `SymbolId`, derived from **one `SYMBOL_IDS` source-of-truth
+  list** (`symbols/ids.ts`) exactly like the material system's `PATTERN_IDS`
+  allowlist — adding a symbol is additive. Starter set: **star, cross,
+  fleurDeLis, lion, dragon, eagle, crown**. Each `SymbolDef` is pure data (a
+  nominal `viewBox` + one or more path `d` strings); the registry
+  (`symbols/index.ts`) maps every id → def. Silhouettes are simple/bold (they must
+  read at flag scale). Well-formedness is unit-tested via a **pure path parser**
+  (`symbols/path.ts`) — never pixels.
+- **The renderer** (`src/flags/renderFlag.ts`). `renderFlag(design, canvas)` draws
+  the stack back-to-front onto a 2D offscreen canvas (field → stripes → charges,
+  in layer order), producing an **OPAQUE** image (the field always covers the rect
+  first; no fill uses alpha < 1 — consistent with the opaque-materials rule). The
+  per-layer **layout math is pure and tested** (`src/flags/layout.ts`:
+  `divisionSections`, `stripeBands` — diagonal bands via half-plane polygon
+  clipping — and `chargeTransform`); the renderer only rasterizes their output, so
+  the raster itself is **not pixel-tested**. `flagTexture(design)`
+  (`src/flags/flagTexture.ts`) wraps the canvas into a Three.js texture through the
+  material system's **shared** `canvasToTexture` helper (`src/materials/textures.ts`)
+  — NOT a parallel texture path — for the flag piece to consume in 2Fb.
+- **Dev QA route.** A dev-only `#flags` hash route (`src/flags/dev/FlagQA.tsx`,
+  wired in `main.tsx`, analogous to the prior project's `#catalog`) renders the
+  hardcoded `FLAG_EXAMPLES` (solid, tricolor, quartered, field+charge, busy) plus
+  the whole symbol library. It is **not** part of the main app UI.
+- **Embed-vs-library model (settled, built in later slices).** A **placed flag
+  piece embeds its own `FlagDesign`** (the design travels with the piece, so
+  Export/Import of a castle carries its flags). The **saved-flags library** is a
+  separate store of **named** flag designs with **overwrite-or-save-as** semantics
+  (like naming a document); placing from the library **copies** the design into the
+  piece (no live link). The library persists client-side alongside the castle
+  autosave.
+- **Phase-2F sub-plan (build in order; one slice = one coherent commit):**
+  - **2Fa (this slice):** the `FlagDesign` layer-stack model, the symbol library,
+    the pure renderer + `flagTexture`, and the `#flags` QA route. **No editor, no
+    placement, no flag piece, no library UI.**
+  - **2Fb:** the **flag piece** (a cloth mesh skinned by `flagTexture`) + its
+    schema bump (with a migration) + placement; a placed flag **embeds** its
+    `FlagDesign`.
+  - **2Fc:** the **flag editor** UI (add/reorder/edit layers; pick field/division,
+    stripes, charges) operating on the selected flag's embedded design.
+  - **2Fd:** the **saved-flags library** (named saves, overwrite-or-save-as, its
+    storage) + placing from the library.
+  - **2Fe:** the **auto-place-along** convenience (drop flags along a wall/tower
+    line).
+  - **Deferred:** **2Ff / Approach B** (freeform raster paint), flag
+    animation/waving.
+
 ## Scope guards
 
 - **Desktop, mouse + keyboard only.** Do not write touch handling.
@@ -363,6 +430,10 @@ builder is unit-tested.
 - No real lighting/illumination design; no measurements/annotations beyond simple
   piece dimensions in the panel.
 - Accessibility basics only: focus styles, button labels, no exotic ARIA work.
+- **Flags: 2Fa is the model + symbol library + renderer + `#flags` QA route
+  ONLY.** No flag editor, no flag placement, no flag piece / schema change, no
+  saved-flags library or its UI, no auto-place-along, no Approach B freeform paint,
+  no flag animation — all are later 2F slices or deferred (see "Flags (phase 2F)").
 
 ## Phase plan
 
@@ -585,6 +656,11 @@ generate-once-and-explicit-beats-clever-auto lesson.
   ring/segment).
 - **1e (navigation):** add the **ramp/stair** with its own pure tested geometry
   helper. **Built last.**
+- **2F (flags):** heraldic flags as a self-contained feature, sub-phased 2Fa–2Fe
+  (2Ff / Approach B deferred). **2Fa is complete:** the `FlagDesign` layer-stack
+  model, the SVG symbol library, the pure renderer + `flagTexture`, and the
+  `#flags` QA route (see "Flags (phase 2F)"). 2Fb+ add the flag piece, editor,
+  library, and auto-place.
 - **2+:** raised terrain (tiers / motte via `groundHeightAt`), parent/child
   auto-riding, wall↔tower attachment, more pieces, more freedom. Do not start any
   of this without instruction.

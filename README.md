@@ -84,6 +84,40 @@ not reset it. (The **Place on top** action is a transient one-shot — not saved
 not in undo history for the arming itself; only the resulting placement is one
 undoable step.)
 
+## Flags (phase 2F)
+
+Heraldic **flags** are a self-contained feature being built alongside the castle
+kit, kept **separate from the castle `Design`/`Piece` schema**. **Slice 2Fa (the
+current one) ships the foundation only** — the data model, the symbol library, the
+renderer, and a dev QA route. There is **no flag editor, placement, or flag piece
+yet** (those are later 2F slices).
+
+- **The model — a layer stack.** A `FlagDesign` is `{ aspect, layers[] }` drawn
+  **back-to-front**: a **field** (a solid color or a `perPale` / `perFess` /
+  `perBend` / `quarterly` division), **stripes** (N horizontal / vertical /
+  diagonal bands), and **charges** (preset symbols positioned by normalized
+  coordinates, scaled, colored, optionally rotated). It's plain data that
+  round-trips through JSON.
+- **The symbol library.** Hand-authored SVG silhouettes — **star, cross,
+  fleur-de-lis, lion, dragon, eagle, crown** — derived from one `SYMBOL_IDS` list
+  (adding one is additive).
+- **The renderer.** `renderFlag(design, canvas)` composites the stack onto an
+  offscreen canvas (**opaque**, no real transparency), reusing the material
+  system's canvas→texture path (`flagTexture` yields a Three.js texture for the
+  flag piece to consume in 2Fb). The per-layer layout math is pure and unit-tested;
+  the raster is never pixel-tested.
+- **Dev QA route.** Open **`#flags`** (e.g. `http://localhost:5173/#flags`) — a
+  dev-only screen (not in the main app) that renders example flags (solid,
+  tricolor, quartered, field+charge, busy) and the full symbol library, so the
+  renderer can be eyeballed before any editor exists.
+- **Planned model (later slices):** a placed flag piece will **embed its own
+  `FlagDesign`** (the design travels with the piece); a separate **saved-flags
+  library** will hold **named** designs with **overwrite-or-save-as** semantics,
+  and placing from it **copies** the design into the piece. Sub-plan: **2Fa** model
+  + library + renderer (done) → **2Fb** flag piece + schema bump + placement →
+  **2Fc** editor → **2Fd** saved-flags library → **2Fe** auto-place-along; **2Ff /
+  Approach B** (freeform raster paint) and flag waving are deferred.
+
 ## Coordinates & units
 
 Lengths are **meters** (UI shows cm precision). World space is Y-up; the ground is
@@ -103,7 +137,11 @@ src/
                        support/face-attach resolution, wall-endpoint anchor
                        snapping, iso camera) — no React, no store
   materials/           MaterialRef → THREE factory + procedural pattern textures
-                       (stone/brick/thatch/opaque-water), generated at runtime
+                       (stone/brick/thatch/opaque-water), generated at runtime;
+                       the shared canvasToTexture helper (patterns + flags)
+  flags/               (phase 2F) the FlagDesign layer-stack model, the pure
+                       layout math + renderFlag, flagTexture, the hand-authored
+                       symbol library (symbols/), and the dev #flags QA route
   store/               Zustand store, schema v1, undo/redo, ?e2e=1 test accessor
   persistence/         autosave + JSON export/import + schema validation
   components/preview/   the R3F scene, ground/grid, pieces, gizmo, placement
