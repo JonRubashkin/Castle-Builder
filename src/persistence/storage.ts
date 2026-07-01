@@ -7,6 +7,7 @@
 
 import type { Design } from "../store/schema";
 import type { PlacementMode } from "../geometry/support";
+import { type FlagLibrary, sanitizeLibrary } from "../flags/library";
 import {
   DesignValidationError,
   parseDesignJSON,
@@ -19,6 +20,10 @@ const AUTOSAVE_KEY = "castle-builder:autosave";
 // survives reload independently of the design (the prior project's snapToWall
 // pref pattern).
 const PLACEMENT_MODE_KEY = "castle-builder:placement-mode";
+// The saved-flags library is a SEPARATE per-origin store (named FlagDesigns),
+// NOT part of the castle Design and NOT in its Export JSON — so it gets its own
+// slot, untouched by autosave / New Castle (exactly like the placement-mode pref).
+const FLAG_LIBRARY_KEY = "castle-builder:flag-library";
 
 function storage(): Storage | null {
   try {
@@ -84,6 +89,34 @@ export function loadPlacementMode(): PlacementMode {
   return raw && (PLACEMENT_MODES as string[]).includes(raw)
     ? (raw as PlacementMode)
     : "normal";
+}
+
+// --- Saved-flags library (persisted, separate from the Design) --------------
+
+/** Persist the saved-flags library. Failures are non-fatal (privacy mode). */
+export function saveFlagLibrary(library: FlagLibrary): void {
+  const store = storage();
+  if (!store) return;
+  try {
+    store.setItem(FLAG_LIBRARY_KEY, JSON.stringify(library));
+  } catch (err) {
+    console.warn("Saving flag library failed:", err);
+  }
+}
+
+/** Load the saved-flags library, sanitizing out any malformed entry (a corrupt
+ * slot degrades to fewer/no entries rather than crashing); [] if none. */
+export function loadFlagLibrary(): FlagLibrary {
+  const store = storage();
+  if (!store) return [];
+  const raw = store.getItem(FLAG_LIBRARY_KEY);
+  if (!raw) return [];
+  try {
+    return sanitizeLibrary(JSON.parse(raw));
+  } catch (err) {
+    console.warn("Ignoring unreadable flag library:", err);
+    return [];
+  }
 }
 
 // --- Export / Import -------------------------------------------------------
