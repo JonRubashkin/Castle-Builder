@@ -9,6 +9,7 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: "gate", label: "Gate", hint: "Click to place a timber gate (positions in an archway / against a wall)" },
   { id: "moat", label: "Moat", hint: "Place opaque-water as a ring or a segment (sub-mode in the panel)" },
   { id: "ramp", label: "Ramp", hint: "Connect two heights: click a bottom, then a top surface (ramp / stair)" },
+  { id: "flag", label: "Flag", hint: "Click to plant a flag (on the ground or on top of a piece)" },
 ];
 
 export function Toolbar() {

@@ -21,6 +21,7 @@ import { isCleanClick } from "./interaction";
 import { TowerGhost } from "./TowerGhost";
 import { GatehouseGhost } from "./GatehouseGhost";
 import { GateGhost } from "./GateGhost";
+import { FlagGhost } from "./FlagGhost";
 import { WallGhost } from "./WallGhost";
 import { MoatRingGhost, MoatSegmentGhost } from "./MoatGhost";
 import { RampGhost } from "./RampGhost";
@@ -30,7 +31,7 @@ const PLANE_SIZE = 400;
 
 // The single-anchor placement tools (one click → one whole piece) share a ghost
 // preview driven by the support rule (ground or face-attach).
-const ANCHOR_TOOLS = ["tower", "gatehouse", "gate"] as const;
+const ANCHOR_TOOLS = ["tower", "gatehouse", "gate", "flag"] as const;
 type AnchorTool = (typeof ANCHOR_TOOLS)[number];
 
 interface GhostState {
@@ -220,8 +221,10 @@ export function GroundInteraction() {
         useStore.getState().addTower({ position: point, base: support.base });
       } else if (anchorTool === "gatehouse") {
         useStore.getState().addGatehouse({ position: point, base: support.base });
-      } else {
+      } else if (anchorTool === "gate") {
         useStore.getState().addGate({ position: point, base: support.base });
+      } else {
+        useStore.getState().addFlag({ position: point, base: support.base });
       }
       return;
     }
@@ -334,6 +337,9 @@ export function GroundInteraction() {
       )}
       {ghost && anchorTool === "gate" && (
         <GateGhost position={ghost.position} base={ghost.base} onSurface={ghost.onSurface} />
+      )}
+      {ghost && anchorTool === "flag" && (
+        <FlagGhost position={ghost.position} base={ghost.base} onSurface={ghost.onSurface} />
       )}
       {tool === "wallRun" && draftStart && draftCursor && wallSupport && (
         <WallGhost

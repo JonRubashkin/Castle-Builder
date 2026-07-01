@@ -1,9 +1,16 @@
-// Schema v1 — the persisted design document and the core of the Zustand store.
-// Field names are exactly as specified in CLAUDE.md. Phase 1 only: the full Piece
-// union is declared (so the data model does not block later phases), but only the
-// Tower variant is exercised this phase.
+// Schema — the persisted design document and the core of the Zustand store.
+// Field names are exactly as specified in CLAUDE.md.
+//
+// v2 (phase 2Fb) adds the FLAG piece, which embeds its own FlagDesign (the 2Fa
+// layer-stack model) so a placed flag always carries its own design and can
+// round-trip through Export/Import with the castle. The v1→v2 migration
+// (src/persistence/migrations.ts) leaves existing pieces untouched — flags are a
+// new, list-compatible kind — and just bumps the version.
 
-export const SCHEMA_VERSION = 1 as const;
+import type { FlagDesign } from "../flags/types";
+import { DEFAULT_FLAG_ASPECT } from "../flags/types";
+
+export const SCHEMA_VERSION = 2 as const;
 
 export interface Vec2 {
   x: number;
@@ -89,7 +96,18 @@ export interface Moat extends PieceBase {
   material: MaterialRef;
 }
 
-export type Piece = Tower | WallRun | Gatehouse | Gate | Ramp | Moat;
+export interface Flag extends PieceBase {
+  kind: "flag";
+  // The full FlagDesign travels WITH the piece (the settled embed model): a
+  // placed flag always carries its own design, so it never changes underneath
+  // the user and Export/Import of a castle carries its flags inline. The design
+  // becomes editable in 2Fc; until then placement seeds a default (below).
+  design: FlagDesign;
+  poleHeight: number; // meters, staff height
+  clothWidth: number; // meters (cloth long edge; height derives via design.aspect)
+}
+
+export type Piece = Tower | WallRun | Gatehouse | Gate | Ramp | Moat | Flag;
 
 export interface Design {
   schemaVersion: typeof SCHEMA_VERSION;
@@ -127,6 +145,27 @@ export const DEFAULT_RAMP_WIDTH = 2;
 export const DEFAULT_MOAT_OUTER_RADIUS = 9;
 export const DEFAULT_MOAT_INNER_RADIUS = 6;
 export const DEFAULT_MOAT_WIDTH = 3;
+
+// Flag (phase 2Fb). The pole/staff height and the cloth's long edge; the cloth
+// height derives from the embedded design's aspect (clothWidth / aspect).
+export const DEFAULT_FLAG_POLE_HEIGHT = 6;
+export const DEFAULT_FLAG_CLOTH_WIDTH = 2.4;
+
+// The default embedded FlagDesign seeded onto a newly placed flag (there is no
+// flag editor until 2Fc). A simple red-over-white bicolor (a per-fess division)
+// — plain, recognizable, and enough to see a flag reads correctly. Returns a
+// FRESH object each call so every placed flag owns its own design (embed model).
+export function createDefaultFlagDesign(): FlagDesign {
+  return {
+    aspect: DEFAULT_FLAG_ASPECT,
+    layers: [
+      {
+        kind: "field",
+        fill: { kind: "division", division: "perFess", colors: ["#c1121f", "#ffffff"] },
+      },
+    ],
+  };
+}
 
 export const DEFAULT_STONE_MATERIAL: MaterialRef = {
   kind: "solid",

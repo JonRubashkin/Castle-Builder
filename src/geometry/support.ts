@@ -50,7 +50,7 @@ export function flatTopWorldY(piece: Piece): number | null {
     case "gate":
       return groundHeightAt(piece.position.x, piece.position.y) + piece.base + piece.height;
     default:
-      return null; // ramp (slope) / moat (water): no flat top
+      return null; // ramp (slope) / moat (water) / flag (pole+cloth): no flat top
   }
 }
 
@@ -67,7 +67,7 @@ function pieceFootprintContains(piece: Piece, point: Vec2): boolean {
     case "wallRun":
       return rectFootprintContains(wallRunFootprint(piece), point);
     default:
-      return false; // gate / ramp / moat are not face-attach surfaces
+      return false; // gate / ramp / moat / flag are not face-attach surfaces
   }
 }
 
