@@ -20,18 +20,24 @@ runs client-side — no backend.
 > when the top click misses a surface). `CLAUDE.md` is the source of truth for
 > conventions, the data model, and scope.
 >
-> **Flags (phase 2F) are underway.** A **flag** is a real placeable piece — a
-> cloth on a pole you plant one at a time (on the ground or on top of a piece),
-> carrying its **own embedded heraldic design** rendered onto the cloth. This
-> bumped the schema to **v2** (with a v1→v2 migration). The **flag editor (2Fc)**
-> is now in: select a flag and click **Edit design…** to compose its layer stack
-> (add / remove / reorder field, stripes, and charges), with a **live preview** and
-> **drag-on-preview** to reposition charges. The **saved-flags library (2Fd)** is
-> also in: name and save designs from the editor (**overwrite-or-save-as**), then
-> **apply** any saved design onto another flag — applying **copies** it in (no live
-> link). The library is per-origin browser storage, **separate** from the castle
-> (not in a castle's Export JSON, untouched by New Castle). **Auto-place-along
-> (2Fe)** is still to come.
+> **Flags (phase 2F) are feature-complete (2Fa–2Fe).** A **flag** is a real
+> placeable piece — a cloth on a pole you plant one at a time (on the ground or on
+> top of a piece), carrying its **own embedded heraldic design** rendered onto the
+> cloth. This bumped the schema to **v2** (with a v1→v2 migration). The **flag
+> editor (2Fc)** lets you select a flag and click **Edit design…** to compose its
+> layer stack (add / remove / reorder field, stripes, and charges), with a **live
+> preview** and **drag-on-preview** to reposition charges. The **saved-flags
+> library (2Fd)** lets you name and save designs from the editor
+> (**overwrite-or-save-as**), then **apply** any saved design onto another flag —
+> applying **copies** it in (no live link); the library is per-origin browser
+> storage, **separate** from the castle (not in a castle's Export JSON, untouched by
+> New Castle). **Auto-place-along (2Fe)** is the final slice: with a **wall run** or
+> **gatehouse** selected, **Add flags along** drops a row of evenly-spaced flags
+> across its top in **one undoable step** (pick spacing + which design — the default
+> or a saved library design). Those flags are **generate-once**: ordinary
+> independent pieces from that moment — resizing/moving the host does **not** move
+> or re-space them. **Deferred:** freeform raster paint (Approach B / 2Ff) and flag
+> animation/waving.
 
 ## Tech stack
 
@@ -73,6 +79,7 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Place on top of…** | A button in a selected piece's properties panel (every piece **except the moat**). Click it to **arm** a one-shot action (a banner + crosshair prompt you to click a target); the **next click on another piece** seats the selected piece on **that piece's top**, centered on it (a wall recenters both endpoints), as **one undo step** — the piece stays selected and the action ends. Overhang is fine (a larger piece just overhangs). **Excluded targets: the moat, ramps, and flags** (no flat top) — clicking one stays armed. `Esc`, a click on empty ground, or clicking the selected piece itself **cancels** with the selection unchanged. |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (it **snaps to a nearby tower / gatehouse anchor**, shown by a snap ring, else the 0.1 m grid; one undo step). Start/End coordinates are also editable as number fields in the panel (the precise/keyboard path — plain grid, no anchor snap). |
 | Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim), **flag** (pole height, cloth width, rotation, plus **Edit design…** to open the flag editor — compose the embedded heraldic design: add/reorder field, stripes, and charges, with a live preview and drag-on-preview for charges). Each castle piece carries a **material** (solid color or a stone / brick / thatch / water pattern); a flag's cloth is skinned by its embedded design instead. |
+| **Add flags along** | A button in a selected **wall run** or **gatehouse** panel: it **generates a row of flags** evenly spaced across the host's **top edge** (a wall along its length; a gatehouse across its width), inset from the ends, as **one undo step**. Pick the **flag spacing** and **which design** each flag embeds (the plain default, or a copy of a saved library design). It is **generate-once**: the created flags are ordinary independent pieces (selectable / movable / editable / deletable) from that moment — later resizing or moving the host does **not** move or re-space them (there is no live "flags follow the wall" link). |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
 | **New Castle** | A top-bar button that clears the current design and starts fresh. It asks for **confirmation first** (Cancel / `Esc` / clicking the backdrop all dismiss with no change; only **Start new** resets). The reset is destructive and **irreversible once autosave overwrites** — **Export JSON first** if you want to keep the current castle. |
@@ -112,16 +119,19 @@ undoable step.)
 
 ## Flags (phase 2F)
 
-Heraldic **flags** are a self-contained feature being built alongside the castle
-kit. **Slices 2Fa–2Fd are done.** 2Fa shipped the foundation — the layer-stack
-data model, the symbol library, the renderer, and a dev QA route. **2Fb** added
-the flag as a real placeable piece — a cloth on a pole, planted one at a time
-(ground or face-attach), carrying its **own embedded `FlagDesign`** rendered onto
-the cloth via the 2Fa renderer (schema bumped to **v2** with a v1→v2 migration).
-**2Fc** added the flag editor — a modal that composes the selected flag's embedded
-design. **2Fd (this slice) adds the saved-flags library:** a persistent, named
-palette of designs you save from the editor and reuse across flags and castles.
-**Auto-place-along (2Fe)** is still to come.
+Heraldic **flags** are a self-contained feature built alongside the castle kit.
+**Slices 2Fa–2Fe are done — flags are feature-complete.** 2Fa shipped the
+foundation — the layer-stack data model, the symbol library, the renderer, and a
+dev QA route. **2Fb** added the flag as a real placeable piece — a cloth on a pole,
+planted one at a time (ground or face-attach), carrying its **own embedded
+`FlagDesign`** rendered onto the cloth via the 2Fa renderer (schema bumped to **v2**
+with a v1→v2 migration). **2Fc** added the flag editor — a modal that composes the
+selected flag's embedded design. **2Fd** added the saved-flags library — a
+persistent, named palette of designs you save from the editor and reuse across
+flags and castles. **2Fe (this slice) adds auto-place-along:** a one-click **Add
+flags along** action that drops a row of independent flags across a wall run or
+gatehouse top. **Deferred:** freeform raster paint (**2Ff / Approach B**) and flag
+animation/waving.
 
 - **The model — a layer stack.** A `FlagDesign` is `{ aspect, layers[] }` drawn
   **back-to-front**: a **field** (a solid color or a `perPale` / `perFess` /
@@ -155,7 +165,12 @@ palette of designs you save from the editor and reuse across flags and castles.
   the hit-test are **pure, tested** functions (`previewPixelToFlagCoord`,
   `chargeAtPoint` in `src/flags/editorPicking.ts`) reusing the renderer's own
   charge transform, and dragging edits the **same** x/y the sliders do (one source
-  of truth — no drift). Editing the **aspect** reshapes the cloth on Apply.
+  of truth — no drift). Editing the **aspect** reshapes the cloth on Apply. The
+  preview is pinned in a **fixed-width** box: only its **height** varies with the
+  aspect (`height = width / aspect`, clamped, letterboxed/centered — never
+  stretched), so changing the aspect **never reflows** the surrounding controls
+  (the box reserves the max height). The pixel→coord mapping accounts for the
+  letterboxing, so charge-dragging stays accurate at any aspect.
 - **The saved-flags library (2Fd).** A per-origin palette of **named** designs,
   managed from a panel inside the flag editor. **Save to library** captures the
   current working design under a name, with **overwrite-or-save-as**: a design
@@ -172,14 +187,29 @@ palette of designs you save from the editor and reuse across flags and castles.
   also has its own **Export library / Import library** JSON backup. The pure library
   CRUD lives in `src/flags/library.ts` (unit-tested); the UI is
   `src/components/ui/FlagLibraryPanel.tsx`.
+- **Auto-place-along (2Fe).** With a **wall run** or **gatehouse** selected, the
+  panel's **Add flags along** button generates a row of independent `Flag` pieces
+  evenly spaced along the host's flat **top edge** — a wall along its length, a
+  gatehouse across its width (both derived from one pure helper,
+  `flagPositionsAlong` in `src/geometry/flagAlong.ts`, unit-tested: N positions for
+  a length/spacing, inset from the ends, seated on the host's top via the shared
+  `flatTopWorldY` — never a literal). A small control picks the **spacing** and
+  **which design** each flag embeds (the default, or a copy of a saved library
+  design). It is **one undoable step** (the store's `addFlagsAlong`), and
+  **generate-once**: the flags become ordinary independent pieces immediately — no
+  live link to the host, so resizing/moving the wall later does **not** move or
+  re-space them (the same generate-once-and-explicit caution as the rest of the
+  builder). Supported hosts are **wall run + gatehouse only**; a tower (round/point
+  top) is deferred — place a single flag on it by hand.
 - **Dev QA route.** Open **`#flags`** (e.g. `http://localhost:5173/#flags`) — a
   dev-only screen (not in the main app) that renders example flags (solid,
   tricolor, quartered, field+charge, busy) and the full symbol library, so the
   renderer can be eyeballed before the editor exists.
 - **Sub-plan:** **2Fa** model + symbols + renderer (**done**) → **2Fb** flag piece
   + schema bump + placement (**done**) → **2Fc** editor (**done**) → **2Fd**
-  saved-flags library (**done**) → **2Fe** auto-place-along; **2Ff / Approach B**
-  (freeform raster paint) and flag waving are deferred.
+  saved-flags library (**done**) → **2Fe** auto-place-along (**done**). Flags are
+  **feature-complete**; **2Ff / Approach B** (freeform raster paint) and flag
+  waving remain deferred.
 
 ## Coordinates & units
 

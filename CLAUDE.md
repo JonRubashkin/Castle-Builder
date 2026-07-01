@@ -451,7 +451,15 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
   `chargeAtPoint` (the topmost charge whose extent contains a point, reusing the
   renderer's OWN `chargeTransform` so hit-test and draw can't drift). The dragged
   charge and the Part-3 x/y sliders edit the **same** value (one source of truth —
-  no separate drag-state). Editing the **aspect** reshapes the cloth on Apply.
+  no separate drag-state). Editing the **aspect** reshapes the cloth on Apply. The
+  preview is pinned top-left in a **FIXED-WIDTH** box (the 2Fe layout fix): the
+  width never changes, and the **height** = `width / aspect` **clamped** to a
+  min/max — so changing the aspect varies only the preview height (a wider flag →
+  shorter, a squarer flag → taller), **never reflowing** the surrounding controls
+  (the box reserves the max height; within it the flag is **letterboxed/centered**,
+  never stretched). The box math is **pure + tested** (`previewBoxSize` +
+  `flagContainRect` in `editorPicking.ts`), and `previewPixelToFlagCoord` uses the
+  SAME `flagContainRect` fit, so charge-dragging stays accurate at any aspect.
 - **Dev QA route.** A dev-only `#flags` hash route (`src/flags/dev/FlagQA.tsx`,
   wired in `main.tsx`, analogous to the prior project's `#catalog`) renders the
   hardcoded `FLAG_EXAMPLES` (solid, tricolor, quartered, field+charge, busy) plus
@@ -494,6 +502,27 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
   (its own backup path). The browser-storage disclosure is single-sourced in
   `src/persistence/disclosure.ts` (`STORAGE_DISCLOSURE`, shown in the bottom bar) and
   now names the library alongside the castle autosave.
+- **Auto-place-along (2Fe, built).** A **generate-once** convenience that drops a
+  row of independent `Flag` pieces along a HOST piece's flat top edge. The pure
+  math is `flagPositionsAlong(piece, { count?, spacing?, inset? })` in
+  `src/geometry/flagAlong.ts` (unit-tested): it returns evenly-spaced anchor
+  positions + a `base` from the SHARED `flatTopWorldY` (never a literal ground-y)
+  along the host's top. **Supported hosts: the wall run** (flags along its length,
+  its two endpoints) **and the gatehouse** (a row across the top along local X /
+  the width). A **tower is DEFERRED** (a round/point top has no natural "along"
+  line — place a single flag by hand); gate / ramp / moat / flag are not hosts. The
+  action is the store's **`addFlagsAlong(hostId, { spacing?/count?, design? })`** —
+  ONE undoable step that pushes the whole batch (undo removes them all together);
+  each flag **embeds a COPY** of the chosen design (the current default, or a saved
+  **library** design picked in the panel — the 2Fd `flagLibrary` slice). The UI is
+  an **Add flags along** control (`AddFlagsAlongControl` in `PiecePanel.tsx`, shown
+  on the wall-run + gatehouse panels) — analogous to the crenellations toggle but an
+  ACTION that generates pieces, not a per-piece render parameter. **Generate-once,
+  NOT auto-maintained** (the project's core caution): the generated flags are
+  ordinary independent pieces from that moment — selectable / movable / editable /
+  deletable, indistinguishable from hand-placed flags — and there is **NO live
+  "flags follow the wall" link**: resizing/moving the host later does not re-space
+  or move them (exactly like the prior project's generate-once roofs).
 - **Phase-2F sub-plan (build in order; one slice = one coherent commit):**
   - **2Fa (DONE):** the `FlagDesign` layer-stack model, the symbol library,
     the pure renderer + `flagTexture`, and the `#flags` QA route. **No editor, no
@@ -515,8 +544,12 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
     (thumbnails via `renderFlag`, overwrite-or-save-as, apply-COPIES-not-links,
     rename/delete, library-only Export/Import). Separate from the castle Design,
     not in its Export JSON, untouched by New Castle. **No auto-place-along yet.**
-  - **2Fe:** the **auto-place-along** convenience (drop flags along a wall/tower
-    line).
+  - **2Fe (DONE — this slice):** the **auto-place-along** convenience — a pure
+    tested `flagPositionsAlong` (hosts: wall run + gatehouse; tower deferred), a
+    store `addFlagsAlong` (one undoable batch, each flag embeds a copy of the
+    default or a chosen library design), and an **Add flags along** panel control.
+    **GENERATE-ONCE** (no live follow); a preview-layout fix pins the editor
+    preview at a fixed width. **Flags are now feature-complete.**
   - **Deferred:** **2Ff / Approach B** (freeform raster paint), flag
     animation/waving.
 
@@ -533,12 +566,13 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
   piece dimensions in the panel.
 - Accessibility basics only: focus styles, button labels, no exotic ARIA work.
 - **Flags: 2Fa (model + symbols + renderer + `#flags` route), 2Fb (the flag
-  piece + schema v2 + placement), 2Fc (the flag editor), and 2Fd (the saved-flags
-  library) are DONE.** The next slice **2Fe** adds the **auto-place-along**
-  convenience ONLY — still **no** Approach B freeform paint (2Ff), **no** flag
-  animation/waving, **no drag-reorder** of editor layers (up/down is enough), and
-  **no live-linked library flags** (applying always COPIES) — all deferred (see
-  "Flags (phase 2F)").
+  piece + schema v2 + placement), 2Fc (the flag editor), 2Fd (the saved-flags
+  library), and 2Fe (auto-place-along) are ALL DONE — flags are
+  feature-complete.** Still **no** Approach B freeform paint (2Ff), **no** flag
+  animation/waving, **no drag-reorder** of editor layers (up/down is enough), **no
+  live-linked library flags** (applying always COPIES), and **no live "flags follow
+  the wall" auto-maintenance** (Add flags along is generate-once) — all deferred
+  (see "Flags (phase 2F)").
 
 ## Phase plan
 
@@ -762,19 +796,22 @@ generate-once-and-explicit-beats-clever-auto lesson.
 - **1e (navigation):** add the **ramp/stair** with its own pure tested geometry
   helper. **Built last.**
 - **2F (flags):** heraldic flags as a self-contained feature, sub-phased 2Fa–2Fe
-  (2Ff / Approach B deferred). **2Fa + 2Fb + 2Fc + 2Fd are complete:** 2Fa shipped
-  the `FlagDesign` layer-stack model, the SVG symbol library, the pure renderer +
-  `flagTexture`, and the `#flags` QA route; **2Fb** added the **flag piece** (pole
-  + cloth skinned by `flagTexture`), the **schema bump to v2** (with a v1→v2
-  migration), and single-anchor placement (a placed flag **embeds** its
-  `FlagDesign`); **2Fc** added the **flag editor** modal (working-copy layer
-  add/reorder/edit + a live `renderFlag` preview + drag-on-preview for charges,
-  applied via one coalesced undoable `updateFlagDesign`); **2Fd** added the
-  **saved-flags library** — a separate per-origin store of named designs
-  (`src/flags/library.ts` CRUD + a `flagLibrary` store slice), with an editor panel
-  for overwrite-or-save-as, an Apply picker (renderFlag thumbnails, copies-not-links),
-  rename/delete, and library-only Export/Import — see "Flags (phase 2F)".
-  2Fe adds auto-place-along.
+  — **all complete; flags are feature-complete** (2Ff / Approach B + waving still
+  deferred). 2Fa shipped the `FlagDesign` layer-stack model, the SVG symbol
+  library, the pure renderer + `flagTexture`, and the `#flags` QA route; **2Fb**
+  added the **flag piece** (pole + cloth skinned by `flagTexture`), the **schema
+  bump to v2** (with a v1→v2 migration), and single-anchor placement (a placed flag
+  **embeds** its `FlagDesign`); **2Fc** added the **flag editor** modal
+  (working-copy layer add/reorder/edit + a live `renderFlag` preview +
+  drag-on-preview for charges, applied via one coalesced undoable
+  `updateFlagDesign`); **2Fd** added the **saved-flags library** — a separate
+  per-origin store of named designs (`src/flags/library.ts` CRUD + a `flagLibrary`
+  store slice), with an editor panel for overwrite-or-save-as, an Apply picker
+  (renderFlag thumbnails, copies-not-links), rename/delete, and library-only
+  Export/Import; **2Fe** added **auto-place-along** — a pure `flagPositionsAlong`
+  (hosts: wall run + gatehouse), a store `addFlagsAlong` (one undoable batch,
+  generate-once), and an **Add flags along** panel control, plus a fixed-width
+  editor-preview layout fix — see "Flags (phase 2F)".
 - **2+:** raised terrain (tiers / motte via `groundHeightAt`), parent/child
   auto-riding, wall↔tower attachment, more pieces, more freedom. Do not start any
   of this without instruction.
