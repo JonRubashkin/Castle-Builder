@@ -430,6 +430,28 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
   rotation) reuse the shared machinery. A flag is **NOT a face-attach target**
   (excluded from `isFaceAttachSurface` / `flatTopWorldY` → also excluded as a
   Place-on-top target), matching the moat/ramp exclusions.
+- **The flag editor (2Fc, built).** A modal (`src/components/ui/FlagEditor.tsx`,
+  opened by an **Edit design…** button in the selected flag's panel) that edits a
+  **WORKING COPY** of the flag's embedded `FlagDesign` in local React state. Only
+  **Apply** commits, through the named store action **`updateFlagDesign(id,
+  design)`** — ONE undoable, **coalesced** entry (the whole editing session — many
+  layer edits + a charge drag — collapses into a single history step, the project's
+  slider-coalescing spirit); **Cancel / Esc / backdrop** discard the working copy.
+  A **live preview** re-renders the working design through the SAME 2Fa
+  `renderFlag` the world cloth uses (so preview and placed flag can't drift). The
+  working-copy layer ops are **pure + tested** (`src/flags/editorOps.ts`:
+  `addLayer` / `removeLayer` / `moveLayer` / `updateLayer` / `setAspect`, each
+  returning a NEW design — up/down reorder only; **drag-reorder deferred**). Per
+  layer: **field** (solid or division, a color per section), **stripes**
+  (orientation / count / a color per band), **charge** (symbol picked from
+  `SYMBOL_IDS`, x / y / scale / color / rotation). **Charges drag on the preview**
+  via two **pure, tested** functions (`src/flags/editorPicking.ts`):
+  `previewPixelToFlagCoord` (a preview pixel → normalized `0..1`, accounting for
+  the box size + aspect letterboxing — the inverse of the renderer's placement) and
+  `chargeAtPoint` (the topmost charge whose extent contains a point, reusing the
+  renderer's OWN `chargeTransform` so hit-test and draw can't drift). The dragged
+  charge and the Part-3 x/y sliders edit the **same** value (one source of truth —
+  no separate drag-state). Editing the **aspect** reshapes the cloth on Apply.
 - **Dev QA route.** A dev-only `#flags` hash route (`src/flags/dev/FlagQA.tsx`,
   wired in `main.tsx`, analogous to the prior project's `#catalog`) renders the
   hardcoded `FLAG_EXAMPLES` (solid, tricolor, quartered, field+charge, busy) plus
@@ -450,8 +472,12 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
     single-anchor placement (ground / face-attach); a placed flag **embeds** its
     `FlagDesign`. Select / move / 15° rotate / delete + a pole/cloth param panel.
     **No editor yet** — placement seeds a default design (2Fc adds editing).
-  - **2Fc:** the **flag editor** UI (add/reorder/edit layers; pick field/division,
-    stripes, charges) operating on the selected flag's embedded design.
+  - **2Fc (DONE — this slice):** the **flag editor** modal (add/reorder/edit
+    layers; pick field/division, stripes, charges) operating on a **working copy**
+    of the selected flag's embedded design, with a live `renderFlag` preview and
+    **drag-on-preview** for charges (pure tested pixel→coord + hit-test). Apply
+    commits ONE coalesced undoable edit (`updateFlagDesign`); Cancel/Esc/backdrop
+    discard. **No library, no auto-place, no drag-reorder of layers.**
   - **2Fd:** the **saved-flags library** (named saves, overwrite-or-save-as, its
     storage) + placing from the library.
   - **2Fe:** the **auto-place-along** convenience (drop flags along a wall/tower
@@ -471,12 +497,12 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
 - No real lighting/illumination design; no measurements/annotations beyond simple
   piece dimensions in the panel.
 - Accessibility basics only: focus styles, button labels, no exotic ARIA work.
-- **Flags: 2Fa (model + symbols + renderer + `#flags` route) and 2Fb (the flag
-  piece + schema v2 + placement) are DONE.** The next slice **2Fc** adds the flag
-  **editor** ONLY — still **no** saved-flags library or its UI (2Fd), **no**
+- **Flags: 2Fa (model + symbols + renderer + `#flags` route), 2Fb (the flag
+  piece + schema v2 + placement), and 2Fc (the flag editor) are DONE.** The next
+  slice **2Fd** adds the **saved-flags library** ONLY — still **no**
   auto-place-along (2Fe), **no** Approach B freeform paint (2Ff), **no** flag
-  animation/waving — all deferred (see "Flags (phase 2F)"). Placement uses a
-  default embedded design until the editor exists.
+  animation/waving, and **no drag-reorder** of editor layers (up/down is enough) —
+  all deferred (see "Flags (phase 2F)").
 
 ## Phase plan
 
@@ -700,13 +726,15 @@ generate-once-and-explicit-beats-clever-auto lesson.
 - **1e (navigation):** add the **ramp/stair** with its own pure tested geometry
   helper. **Built last.**
 - **2F (flags):** heraldic flags as a self-contained feature, sub-phased 2Fa–2Fe
-  (2Ff / Approach B deferred). **2Fa + 2Fb are complete:** 2Fa shipped the
+  (2Ff / Approach B deferred). **2Fa + 2Fb + 2Fc are complete:** 2Fa shipped the
   `FlagDesign` layer-stack model, the SVG symbol library, the pure renderer +
   `flagTexture`, and the `#flags` QA route; **2Fb** added the **flag piece** (pole
   + cloth skinned by `flagTexture`), the **schema bump to v2** (with a v1→v2
   migration), and single-anchor placement (a placed flag **embeds** its
-  `FlagDesign`) — see "Flags (phase 2F)". 2Fc+ add the editor, library, and
-  auto-place.
+  `FlagDesign`); **2Fc** added the **flag editor** modal (working-copy layer
+  add/reorder/edit + a live `renderFlag` preview + drag-on-preview for charges,
+  applied via one coalesced undoable `updateFlagDesign`) — see "Flags (phase 2F)".
+  2Fd+ add the saved-flags library and auto-place.
 - **2+:** raised terrain (tiers / motte via `groundHeightAt`), parent/child
   auto-riding, wall↔tower attachment, more pieces, more freedom. Do not start any
   of this without instruction.

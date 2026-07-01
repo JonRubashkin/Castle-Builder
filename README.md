@@ -20,12 +20,14 @@ runs client-side — no backend.
 > when the top click misses a surface). `CLAUDE.md` is the source of truth for
 > conventions, the data model, and scope.
 >
-> **Flags (phase 2F) are underway.** A **flag** is now a real placeable piece — a
+> **Flags (phase 2F) are underway.** A **flag** is a real placeable piece — a
 > cloth on a pole you plant one at a time (on the ground or on top of a piece),
 > carrying its **own embedded heraldic design** rendered onto the cloth. This
-> bumped the schema to **v2** (with a v1→v2 migration). The **flag editor** (to
-> change the field / stripes / charges) arrives in the next slice (2Fc); until
-> then a placed flag uses a sensible default design.
+> bumped the schema to **v2** (with a v1→v2 migration). The **flag editor (2Fc)**
+> is now in: select a flag and click **Edit design…** to compose its layer stack
+> (add / remove / reorder field, stripes, and charges), with a **live preview** and
+> **drag-on-preview** to reposition charges. The saved-flags **library** (2Fd) is
+> still to come.
 
 ## Tech stack
 
@@ -66,7 +68,7 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Keep on ground** | A toggle tab on the **right of the viewport**, shown **while a piece is selected** (hidden otherwise). When **on**, a moved piece ignores face-attach and always seats on the ground (never climbs onto other pieces); when **off** (the default), moving uses the normal face-attach rule. It **persists until you turn it off** (a saved preference — **not** part of the design and **not** in undo history) and applies to the **move/drag** path (initial placement of a new piece is unaffected). |
 | **Place on top of…** | A button in a selected piece's properties panel (every piece **except the moat**). Click it to **arm** a one-shot action (a banner + crosshair prompt you to click a target); the **next click on another piece** seats the selected piece on **that piece's top**, centered on it (a wall recenters both endpoints), as **one undo step** — the piece stays selected and the action ends. Overhang is fine (a larger piece just overhangs). **Excluded targets: the moat, ramps, and flags** (no flat top) — clicking one stays armed. `Esc`, a click on empty ground, or clicking the selected piece itself **cancels** with the selection unchanged. |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (it **snaps to a nearby tower / gatehouse anchor**, shown by a snap ring, else the 0.1 m grid; one undo step). Start/End coordinates are also editable as number fields in the panel (the precise/keyboard path — plain grid, no anchor snap). |
-| Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim), **flag** (pole height, cloth width, rotation — full heraldic design editing arrives with the flag editor in 2Fc). Each castle piece carries a **material** (solid color or a stone / brick / thatch / water pattern); a flag's cloth is skinned by its embedded design instead. |
+| Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim), **flag** (pole height, cloth width, rotation, plus **Edit design…** to open the flag editor — compose the embedded heraldic design: add/reorder field, stripes, and charges, with a live preview and drag-on-preview for charges). Each castle piece carries a **material** (solid color or a stone / brick / thatch / water pattern); a flag's cloth is skinned by its embedded design instead. |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
 | **New Castle** | A top-bar button that clears the current design and starts fresh. It asks for **confirmation first** (Cancel / `Esc` / clicking the backdrop all dismiss with no change; only **Start new** resets). The reset is destructive and **irreversible once autosave overwrites** — **Export JSON first** if you want to keep the current castle. |
@@ -99,14 +101,13 @@ undoable step.)
 ## Flags (phase 2F)
 
 Heraldic **flags** are a self-contained feature being built alongside the castle
-kit. **Slices 2Fa–2Fb are done.** 2Fa shipped the foundation — the layer-stack
-data model, the symbol library, the renderer, and a dev QA route. **2Fb (this
-slice) adds the flag as a real placeable piece:** a cloth on a pole, planted one
-at a time (ground or face-attach) like any other piece, carrying its **own
-embedded `FlagDesign`** rendered onto the cloth via the 2Fa renderer. This bumped
-the persisted schema to **v2** (with a v1→v2 migration). There is **no flag
-editor yet** — placement seeds a default design; editing the field / stripes /
-charges arrives in **2Fc**.
+kit. **Slices 2Fa–2Fc are done.** 2Fa shipped the foundation — the layer-stack
+data model, the symbol library, the renderer, and a dev QA route. **2Fb** added
+the flag as a real placeable piece — a cloth on a pole, planted one at a time
+(ground or face-attach), carrying its **own embedded `FlagDesign`** rendered onto
+the cloth via the 2Fa renderer (schema bumped to **v2** with a v1→v2 migration).
+**2Fc (this slice) adds the flag editor:** a modal that composes the selected
+flag's embedded design. The saved-flags **library** (2Fd) is still to come.
 
 - **The model — a layer stack.** A `FlagDesign` is `{ aspect, layers[] }` drawn
   **back-to-front**: a **field** (a solid color or a `perPale` / `perFess` /
@@ -127,6 +128,20 @@ charges arrives in **2Fc**.
   curved** so it doesn't read as flat cardboard (no waving — deferred). A placed
   flag **embeds its full `FlagDesign`** (the design travels with the piece), so it
   never changes underneath you and Export/Import carries it inline.
+- **The flag editor (2Fc).** With a flag selected, **Edit design…** opens a modal
+  that edits a **working copy** of the flag's embedded `FlagDesign`; only **Apply**
+  commits it — as **one coalesced, undoable** store edit (`updateFlagDesign`) —
+  while **Cancel / Esc / backdrop** discard. A **live preview** re-renders the
+  working design through the very same `renderFlag`, so the preview and the placed
+  cloth can't drift. You can **add / remove / reorder** layers (up/down controls;
+  order = draw order, back → front) and edit each: a **field** (solid or a
+  division, a color per section), **stripes** (orientation, count, a color per
+  band), or a **charge** (symbol from `SYMBOL_IDS`, x/y, scale, color, rotation).
+  Charges are **draggable directly on the preview** — the pixel→coord mapping and
+  the hit-test are **pure, tested** functions (`previewPixelToFlagCoord`,
+  `chargeAtPoint` in `src/flags/editorPicking.ts`) reusing the renderer's own
+  charge transform, and dragging edits the **same** x/y the sliders do (one source
+  of truth — no drift). Editing the **aspect** reshapes the cloth on Apply.
 - **Dev QA route.** Open **`#flags`** (e.g. `http://localhost:5173/#flags`) — a
   dev-only screen (not in the main app) that renders example flags (solid,
   tricolor, quartered, field+charge, busy) and the full symbol library, so the
@@ -135,8 +150,9 @@ charges arrives in **2Fc**.
   **named** designs with **overwrite-or-save-as** semantics, and placing from it
   **copies** the design into the piece. Sub-plan: **2Fa** model + library +
   renderer (**done**) → **2Fb** flag piece + schema bump + placement (**done**) →
-  **2Fc** editor → **2Fd** saved-flags library → **2Fe** auto-place-along; **2Ff /
-  Approach B** (freeform raster paint) and flag waving are deferred.
+  **2Fc** editor (**done**) → **2Fd** saved-flags library → **2Fe**
+  auto-place-along; **2Ff / Approach B** (freeform raster paint) and flag waving
+  are deferred.
 
 ## Coordinates & units
 
