@@ -247,3 +247,58 @@ describe("resolveSupportAt — the placement modes", () => {
     expect(r.center).toBeNull();
   });
 });
+
+describe("resolveSupportAt — eager center-on-support (>50% overlap or aligned centers)", () => {
+  it("latches BEFORE the anchor is over the support (>50% overlapped) and rises to its top", () => {
+    // A radius-2 tower over a radius-4 support, anchor at x=3: the anchor is
+    // still inside the support here, but the point is it latches on overlap, and
+    // rises to the SUPPORT's top and reports the support's center.
+    const support = tower({ id: "support", position: { x: 0, y: 0 }, radius: 4, height: 8 });
+    const moving = tower({ id: "moving", position: { x: 3, y: 0 }, radius: 2, height: 5 });
+    const r = resolveSupportAt(moving.position, [support], "centerOnSupport", moving);
+    expect(r.onSurface).toBe(true);
+    expect(r.surfaceId).toBe("support");
+    expect(r.center).toEqual({ x: 0, y: 0 });
+    expect(r.base).toBe(8); // the SUPPORT's top, since the piece lands centered on it
+  });
+
+  it("latches even when the anchor is OUTSIDE the support footprint (still >50% overlap)", () => {
+    // A big moving tower over a small support: shift it so its anchor sits just
+    // outside the small footprint but the moving piece still swallows >50%... use
+    // aligned-center to guarantee the outside-anchor latch.
+    const support = tower({ id: "s", position: { x: 0, y: 0 }, radius: 0.6, height: 6 });
+    const moving = tower({ id: "m", position: { x: 0, y: 0 }, radius: 3, height: 8 });
+    // anchor exactly aligned with the support center but far larger → latches.
+    const r = resolveSupportAt(moving.position, [support], "centerOnSupport", moving);
+    expect(r.center).toEqual({ x: 0, y: 0 });
+    expect(r.base).toBe(6);
+  });
+
+  it("does NOT latch (no center) when only slightly overlapping and centers apart", () => {
+    const support = tower({ id: "s", position: { x: 0, y: 0 }, radius: 2, height: 8 });
+    const moving = tower({ id: "m", position: { x: 3.5, y: 0 }, radius: 2, height: 5 });
+    const r = resolveSupportAt(moving.position, [support], "centerOnSupport", moving);
+    // Not "mostly on" the support → no center; anchor is off the footprint → ground.
+    expect(r.center).toBeNull();
+    expect(r.onSurface).toBe(false);
+    expect(r.base).toBe(0);
+  });
+
+  it("picks the HIGHEST support among several the piece is mostly on", () => {
+    const low = tower({ id: "low", position: { x: 0, y: 0 }, radius: 4, height: 6 });
+    const high = tower({ id: "high", position: { x: 0, y: 0 }, radius: 4, base: 6, height: 5 }); // top 11
+    const moving = tower({ id: "m", position: { x: 0.5, y: 0 }, radius: 1, height: 3 });
+    const r = resolveSupportAt(moving.position, [low, high], "centerOnSupport", moving);
+    expect(r.surfaceId).toBe("high");
+    expect(r.base).toBe(11);
+    expect(r.center).toEqual({ x: 0, y: 0 });
+  });
+
+  it("without `moving` it stays backward-compatible (anchor-over-footprint rule)", () => {
+    const lower = tower({ id: "lower", position: { x: 3, y: -2 }, base: 0, height: 8 });
+    const anchor = { x: 3.5, y: -1.5 }; // inside the footprint, off center
+    const r = resolveSupportAt(anchor, [lower], "centerOnSupport"); // no moving arg
+    expect(r.center).toEqual({ x: 3, y: -2 });
+    expect(r.base).toBe(8);
+  });
+});

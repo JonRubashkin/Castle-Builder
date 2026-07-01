@@ -55,7 +55,7 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Face-attach** | With the tower / gatehouse / wall / **gate** / **ramp** tool, place over an existing piece's footprint: the new piece (or a ramp's **bottom** anchor) seats on that piece's **top** (its stored base = the lower piece's top), instead of on the ground. A wall seats at its **start** anchor's support height. (The moat is exempt — it always seats on the ground; and a ramp is never a face-attach **target**.) |
 | **Select tool** | Click a piece to select it; click empty ground to deselect. |
 | Move a selected piece | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**, subject to the **placement-mode toggles** below. For a wall, the gizmo moves the **whole wall** (both endpoints together). |
-| **Placement-mode toggles** | Two toggle tabs on the **right of the viewport**, shown **while a piece is selected** (hidden otherwise). **Keep on ground** — a moved piece ignores face-attach and always seats on the ground (never climbs onto other pieces). **Center on support** — when a moved piece rests on another piece, its horizontal (XZ) position snaps to that piece's **center** (height still comes from face-attach). The two are **mutually exclusive** (turning one on turns the other off — three modes total: normal / ground-only / center-and-stack). Both **default off**, and each **persists until you turn it off** (a saved preference — it is **not** part of the design and **not** in undo history). They apply to the **move/drag** path (initial placement of a new piece is unaffected). |
+| **Placement-mode toggles** | Two toggle tabs on the **right of the viewport**, shown **while a piece is selected** (hidden otherwise). **Keep on ground** — a moved piece ignores face-attach and always seats on the ground (never climbs onto other pieces). **Center on support** — a moved piece **latches** onto another piece with their centers aligned as soon as it is *mostly there* — **more than 50% of the moved piece overlaps** the support, **or their centers align** — even before the anchor is fully over it. On drop the piece jumps to that support's center and rises to its top (the center snap is applied at drop, not mid-drag, so it never fights the gizmo). The two are **mutually exclusive** (turning one on turns the other off — three modes total: normal / ground-only / center-and-stack). Both **default off**, and each **persists until you turn it off** (a saved preference — it is **not** part of the design and **not** in undo history). They apply to the **move/drag** path (initial placement of a new piece is unaffected). |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (it **snaps to a nearby tower / gatehouse anchor**, shown by a snap ring, else the 0.1 m grid; one undo step). Start/End coordinates are also editable as number fields in the panel (the precise/keyboard path — plain grid, no anchor snap). |
 | Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim). Each piece carries a **material** (solid color or a stone / brick / thatch / water pattern). |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
@@ -139,8 +139,10 @@ Build command `npm run build`, output `dist/`.
   doc + selection/history/pending-snapshot cleared + `bootNonce` bumped), the
   procedural-material logic (opaque output, pattern ids), the **placement-mode**
   support resolution (ground-only forces the ground even over a surface;
-  center-on-support reports the supporting piece's center XZ + the face-attach top;
-  normal is unchanged) and its **mode-aware move path** + the store action's
+  center-on-support latches onto a support and reports its center XZ + top as soon
+  as the moved piece is >50% overlapped or its center aligns — its own
+  `footprintOverlap` helper is unit-tested; normal is unchanged) and its
+  **mode-aware move path** + the store action's
   **mutual exclusivity**, and schema validation.
 - E2E tests cover clean boot, placing a tower, select + delete, undo/redo,
   autosave surviving a reload, toggling crenellations + changing material,
@@ -155,8 +157,8 @@ Build command `npm run build`, output `dist/`.
   reload**, **wall-endpoint anchor snapping** (an endpoint over a tower latches to
   its anchor; far endpoints grid-snap), the **placement-mode toggles** (appear on
   selection / hidden when deselected; mutually exclusive; persist across reload;
-  ground-only keeps a dragged piece on the ground; center-on-support snaps a
-  dragged piece's XZ onto its support), and **New Castle** (Cancel/`Esc` keep the
+  ground-only keeps a dragged piece on the ground; center-on-support latches a
+  dragged piece's XZ onto its support when mostly overlapped), and **New Castle** (Cancel/`Esc` keep the
   design; confirm clears it + selection + undo history and survives a reload as
   empty). They read app state
   through a test-only accessor exposed at `window.__CASTLE_E2E__` when the page is

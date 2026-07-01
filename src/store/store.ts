@@ -423,7 +423,10 @@ export const useStore = create<StoreState>((set, get) => {
             piece.base = groundOnlyBase(piece.position);
           } else {
             const others = design.pieces.filter((p) => p.id !== id);
-            const support = resolveSupportAt(piece.position, others, state.placementMode);
+            // Pass the moved piece so centerOnSupport can measure footprint
+            // overlap (it latches as soon as the piece is >50% over a support or
+            // its center aligns, not only when the anchor is over the support).
+            const support = resolveSupportAt(piece.position, others, state.placementMode, piece);
             piece.base = support.base;
             // Center-on-support: the anchor must snap onto the supporting piece's
             // center (its own footprint anchor — never a separately computed one),

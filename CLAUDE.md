@@ -523,15 +523,24 @@ hydrated into the store on boot, survive reload, and are untouched by `newDesign
   (`components/ui/PlacementModeTabs.tsx`) toggle a mode on/off (clicking the active
   one returns to `"normal"`).
 - The behavior routes through the ONE shared support path, **not a duplicate**:
-  `resolveSupportAt(anchor, pieces, mode)` is mode-aware — `groundOnly`
+  `resolveSupportAt(anchor, pieces, mode, moving?)` is mode-aware — `groundOnly`
   short-circuits to the ground (skips surface hits; base still routed through
-  `groundHeightAt`), `centerOnSupport` resolves normally and additionally reports
-  the supporting piece's **center** (its own `position` anchor — the existing
-  footprint source of truth, never a separately computed center), `normal` is
-  unchanged. The mode is **read in the move path**: the store's
-  `setPiecePositionTransient` passes `state.placementMode` straight into
-  `resolveSupportAt`; when a `center` comes back the moved piece's anchor snaps
-  onto it (height still from face-attach; a two-point wall shifts both endpoints
+  `groundHeightAt`), `centerOnSupport` **latches** the moved piece onto a support
+  as soon as it is *mostly there* and reports that support's **center** (its own
+  `position` anchor — the existing footprint source of truth, never a separately
+  computed center), `normal` is unchanged. **The latch is EAGER, not
+  anchor-over-footprint:** the moved piece centers on a support when **>50% of its
+  footprint overlaps** the support **OR their centers align** — the pure test is
+  `shouldCenterSnap` in `src/geometry/footprintOverlap.ts` (area-sampled overlap
+  fraction + an anchor-alignment tolerance), reusing the SAME per-piece footprint
+  helpers the meshes/hit-test use so it can't drift. It needs the `moving` piece
+  (to measure overlap), which the move path passes; without `moving` the mode
+  falls back to the old anchor-over-footprint rule (backward compatible). Because
+  the piece will land centered on the support, it rises to **that support's top**,
+  not whatever is under the live anchor. The mode is **read in the move path**:
+  the store's `setPiecePositionTransient` passes `state.placementMode` **and the
+  moved piece** straight into `resolveSupportAt`; when a `center` comes back the
+  moved piece's anchor snaps onto it (a two-point wall shifts both endpoints
   rigidly). **The center snap is DEFERRED to the drop (`commitTransient`), not
   applied mid-drag** — during a live gizmo drag the mesh's group is driven
   imperatively by `TransformControls` from the pointer, so moving the anchor
