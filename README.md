@@ -31,13 +31,16 @@ runs client-side — no backend.
 > (**overwrite-or-save-as**), then **apply** any saved design onto another flag —
 > applying **copies** it in (no live link); the library is per-origin browser
 > storage, **separate** from the castle (not in a castle's Export JSON, untouched by
-> New Castle). **Auto-place-along (2Fe)** is the final slice: with a **wall run** or
+> New Castle). **Auto-place-along (2Fe, refined in 2Fe.1):** with a **wall run** or
 > **gatehouse** selected, **Add flags along** drops a row of evenly-spaced flags
-> across its top in **one undoable step** (pick spacing + which design — the default
-> or a saved library design). Those flags are **generate-once**: ordinary
-> independent pieces from that moment — resizing/moving the host does **not** move
-> or re-space them. **Deferred:** freeform raster paint (Approach B / 2Ff) and flag
-> animation/waving.
+> across its top in **one undoable step** — pick spacing, then a small **chooser**
+> for the design (use your last-edited design, pick a saved one, or design a new one
+> on the spot). Clicking it again **re-runs and replaces** that host's row (handy
+> after resizing a wall); between clicks the flags are **generate-once** (ordinary
+> independent pieces that don't follow host edits until you re-run). The flag editor
+> also lets you tweak a flag's **pole height / cloth width** in one place (piece
+> properties — not saved to the library). **Deferred:** freeform raster paint
+> (Approach B / 2Ff), flag animation/waving, and **copy/paste** (not yet in the app).
 
 ## Tech stack
 
@@ -78,8 +81,8 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Keep on ground** | A toggle tab on the **right of the viewport**, shown **while a piece is selected** (hidden otherwise). When **on**, a moved piece ignores face-attach and always seats on the ground (never climbs onto other pieces); when **off** (the default), moving uses the normal face-attach rule. It **persists until you turn it off** (a saved preference — **not** part of the design and **not** in undo history) and applies to the **move/drag** path (initial placement of a new piece is unaffected). |
 | **Place on top of…** | A button in a selected piece's properties panel (every piece **except the moat**). Click it to **arm** a one-shot action (a banner + crosshair prompt you to click a target); the **next click on another piece** seats the selected piece on **that piece's top**, centered on it (a wall recenters both endpoints), as **one undo step** — the piece stays selected and the action ends. Overhang is fine (a larger piece just overhangs). **Excluded targets: the moat, ramps, and flags** (no flat top) — clicking one stays armed. `Esc`, a click on empty ground, or clicking the selected piece itself **cancels** with the selection unchanged. |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (it **snaps to a nearby tower / gatehouse anchor**, shown by a snap ring, else the 0.1 m grid; one undo step). Start/End coordinates are also editable as number fields in the panel (the precise/keyboard path — plain grid, no anchor snap). |
-| Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim), **flag** (pole height, cloth width, rotation, plus **Edit design…** to open the flag editor — compose the embedded heraldic design: add/reorder field, stripes, and charges, with a live preview and drag-on-preview for charges). Each castle piece carries a **material** (solid color or a stone / brick / thatch / water pattern); a flag's cloth is skinned by its embedded design instead. |
-| **Add flags along** | A button in a selected **wall run** or **gatehouse** panel: it **generates a row of flags** evenly spaced across the host's **top edge** (a wall along its length; a gatehouse across its width), inset from the ends, as **one undo step**. Pick the **flag spacing** and **which design** each flag embeds (the plain default, or a copy of a saved library design). It is **generate-once**: the created flags are ordinary independent pieces (selectable / movable / editable / deletable) from that moment — later resizing or moving the host does **not** move or re-space them (there is no live "flags follow the wall" link). |
+| Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim), **flag** (pole height, cloth width, rotation, plus **Edit design…** to open the flag editor — compose the embedded heraldic design: add/reorder field, stripes, and charges, with a live preview and drag-on-preview for charges; the editor **also** exposes the flag's **pole height** and **cloth width** so you can fully customize a flag in one place — those are piece properties committed with the design on **Apply**, and are **never** saved to the flag library). Each castle piece carries a **material** (solid color or a stone / brick / thatch / water pattern); a flag's cloth is skinned by its embedded design instead. |
+| **Add flags along** | A button in a selected **wall run** or **gatehouse** panel: it **generates a row of flags** evenly spaced across the host's **top edge** (a wall along its length; a gatehouse across its width), inset from the ends, as **one undo step**. Pick the **flag spacing**, then a small **chooser** for which design each flag embeds: **Use last design** (the last design you edited, or a sensible default), **Pick from library** (a saved design), or **Design new** (compose one in the flag editor, then place). Clicking it again **re-runs and REPLACES**: it first removes every flag it previously generated **for that host** (including any you hand-moved), then lays a fresh set — so after resizing a wall, one click re-spaces its flags (all one undo step). It stays **generate-once** *between* clicks: the created flags are ordinary independent pieces (selectable / movable / editable / deletable) and don't follow later host edits until you explicitly re-run. |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
 | **New Castle** | A top-bar button that clears the current design and starts fresh. It asks for **confirmation first** (Cancel / `Esc` / clicking the backdrop all dismiss with no change; only **Start new** resets). The reset is destructive and **irreversible once autosave overwrites** — **Export JSON first** if you want to keep the current castle. |
@@ -113,9 +116,12 @@ linger.
 The **Keep on ground** toggle is a saved **UI preference**, stored in a separate
 `localStorage` slot — **not** part of the design document and **not** in undo
 history. It survives reload independently of the castle, and **New Castle** does
-not reset it. (The **Place on top** action is a transient one-shot — not saved,
-not in undo history for the arming itself; only the resulting placement is one
-undoable step.)
+not reset it. The **last-used flag design** (which backs the "Use last design"
+option of the "Add flags along" chooser) is another such saved preference in its
+own slot — updated whenever you apply/edit a flag design, not part of the Design,
+not in undo history, and untouched by New Castle. (The **Place on top** action is a
+transient one-shot — not saved, not in undo history for the arming itself; only the
+resulting placement is one undoable step.)
 
 ## Flags (phase 2F)
 
@@ -128,10 +134,16 @@ planted one at a time (ground or face-attach), carrying its **own embedded
 with a v1→v2 migration). **2Fc** added the flag editor — a modal that composes the
 selected flag's embedded design. **2Fd** added the saved-flags library — a
 persistent, named palette of designs you save from the editor and reuse across
-flags and castles. **2Fe (this slice) adds auto-place-along:** a one-click **Add
-flags along** action that drops a row of independent flags across a wall run or
-gatehouse top. **Deferred:** freeform raster paint (**2Ff / Approach B**) and flag
-animation/waving.
+flags and castles. **2Fe adds auto-place-along:** a one-click **Add flags along**
+action that drops a row of independent flags across a wall run or gatehouse top.
+**2Fe.1 refines it:** each auto-flag is tagged to its host so a re-run **replaces**
+that host's row (wholesale, one undo step); "Add flags along" opens a **design
+chooser** (use your last-edited design, pick a saved one, or design a new one)
+backed by a persisted **last-used design**; and the flag editor now also edits a
+flag's **pole height / cloth width** (piece properties, never saved to the
+library). **Deferred:** freeform raster paint (**2Ff / Approach B**), flag
+animation/waving, and **copy/paste** (the app has none yet — when added, a pasted
+flag must clone all params but drop the auto-placement host tag).
 
 - **The model — a layer stack.** A `FlagDesign` is `{ aspect, layers[] }` drawn
   **back-to-front**: a **field** (a solid color or a `perPale` / `perFess` /
