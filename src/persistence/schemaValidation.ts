@@ -72,18 +72,18 @@ function validateFlagDesign(value: unknown, index: number): void {
   });
 }
 
-function validateMaterial(value: unknown, index: number): void {
+function validateMaterial(value: unknown, index: number, field = "material"): void {
   // Material is optional in the raw document (older saves may predate it); when
   // present it must be a well-formed solid or pattern. Unknown pattern ids are
   // rejected, but the allowlist DERIVES from PATTERN_IDS so additive ids pass.
   if (value === undefined) return;
   if (!isPlainObject(value)) {
-    throw new DesignValidationError(`pieces[${index}].material must be an object`);
+    throw new DesignValidationError(`pieces[${index}].${field} must be an object`);
   }
   if (value.kind === "solid") {
     if (typeof value.color !== "string") {
       throw new DesignValidationError(
-        `pieces[${index}].material.color must be a string`,
+        `pieces[${index}].${field}.color must be a string`,
       );
     }
     return;
@@ -91,19 +91,41 @@ function validateMaterial(value: unknown, index: number): void {
   if (value.kind === "pattern") {
     if (typeof value.pattern !== "string" || !PATTERN_ALLOWLIST.has(value.pattern)) {
       throw new DesignValidationError(
-        `pieces[${index}].material.pattern is unknown: ${value.pattern}`,
+        `pieces[${index}].${field}.pattern is unknown: ${value.pattern}`,
       );
     }
     if (typeof value.colorA !== "string" || typeof value.colorB !== "string") {
       throw new DesignValidationError(
-        `pieces[${index}].material pattern needs string colorA/colorB`,
+        `pieces[${index}].${field} pattern needs string colorA/colorB`,
       );
     }
     return;
   }
   throw new DesignValidationError(
-    `pieces[${index}].material.kind is unknown: ${value.kind}`,
+    `pieces[${index}].${field}.kind is unknown: ${value.kind}`,
   );
+}
+
+// The roof-host kinds (schema v3, phase 2H). Only these carry roof fields; the
+// v2→v3 migration guarantees an older host piece has them by the time this runs.
+const ROOF_HOST_KINDS = new Set(["tower", "gatehouse", "wallRun", "ramp"]);
+const POSTED_TOGGLE_KINDS = new Set(["tower", "gatehouse"]);
+
+/** Validate the roof fields on a roof-host piece (present since the v3 migration). */
+function validateRoofFields(value: Record<string, unknown>, index: number): void {
+  if (typeof value.roofed !== "boolean") {
+    throw new DesignValidationError(`pieces[${index}].roofed must be a boolean`);
+  }
+  if (typeof value.roofPitch !== "number") {
+    throw new DesignValidationError(`pieces[${index}].roofPitch must be a number`);
+  }
+  if (value.roofMaterial === undefined) {
+    throw new DesignValidationError(`pieces[${index}].roofMaterial is required`);
+  }
+  validateMaterial(value.roofMaterial, index, "roofMaterial");
+  if (POSTED_TOGGLE_KINDS.has(value.kind as string) && typeof value.raisedOnPosts !== "boolean") {
+    throw new DesignValidationError(`pieces[${index}].raisedOnPosts must be a boolean`);
+  }
 }
 
 function validatePiece(value: unknown, index: number): Piece {
@@ -126,6 +148,11 @@ function validatePiece(value: unknown, index: number): Piece {
     throw new DesignValidationError(`pieces[${index}].rotation must be a number`);
   }
   validateMaterial(value.material, index);
+  // Roof fields (schema v3): required on the roof-host kinds (the v2→v3 migration
+  // adds them to older host pieces before this validation runs).
+  if (ROOF_HOST_KINDS.has(value.kind)) {
+    validateRoofFields(value, index);
+  }
   // Flag-specific fields: the embedded FlagDesign plus the pole/cloth dimensions.
   if (value.kind === "flag") {
     if (typeof value.poleHeight !== "number") {

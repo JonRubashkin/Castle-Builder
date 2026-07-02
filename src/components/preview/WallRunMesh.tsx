@@ -12,12 +12,14 @@ import {
   wallRunRotationDeg,
 } from "../../geometry/wallRunFootprint";
 import { buildWallRun } from "../../geometry/wallRunBuilder";
+import { wallRunRoof } from "../../geometry/roofs";
 import { snapHorizontal } from "../../geometry/grid";
 import { snapEndpoint } from "../../geometry/snapEndpoint";
 import { PATTERN_TILE_METERS } from "../../materials/patterns";
 import { useThreeMaterial } from "../../materials/threeMaterial";
 import { isCleanClick } from "./interaction";
 import { BoxParts } from "./BoxParts";
+import { RoofParts } from "./RoofParts";
 import { SnapRing } from "./SnapRing";
 
 function deg2rad(d: number): number {
@@ -70,6 +72,10 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
 
   const parts = buildWallRun(piece);
 
+  // Roof (schema v3): a posted gabled cover (an open covered wall-walk) with its
+  // own material. Empty when unroofed. Coexists with crenellations.
+  const roof = wallRunRoof(piece);
+
   // Tile a pattern across the wall surface at ~PATTERN_TILE_METERS.
   const length = Math.hypot(piece.end.x - piece.position.x, piece.end.y - piece.position.y);
   const around = 2 * (length + piece.thickness);
@@ -79,6 +85,7 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
   ];
 
   const material = useThreeMaterial(piece.material, { repeat }, { selected, hovered });
+  const roofMaterial = useThreeMaterial(piece.roofMaterial, { repeat: [2, 2] }, { selected, hovered });
 
   // --- endpoint-handle dragging (Select tool) ---------------------------------
   // Project a screen point onto the wall's base plane (y = baseY); we only use
@@ -172,6 +179,7 @@ export function WallRunMesh({ piece }: WallRunMeshProps) {
       >
         <group onPointerOver={handleOver} onPointerOut={handleOut} onClick={handleClick}>
           <BoxParts parts={parts} material={material} />
+          <RoofParts parts={roof} material={roofMaterial} />
         </group>
 
         {/* Endpoint handles (the primary editing affordance): a selected wall

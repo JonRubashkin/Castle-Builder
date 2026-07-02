@@ -104,9 +104,13 @@ type FillOption = "solid" | PatternId;
 function MaterialControl({
   material,
   onChange,
+  ariaPrefix = "",
 }: {
   material: MaterialRef;
   onChange: (m: MaterialRef) => void;
+  // Prefixes the control's aria-labels so a panel can host TWO material controls
+  // (e.g. a wall material and a roof material) without duplicate labels.
+  ariaPrefix?: string;
 }) {
   const fill: FillOption = material.kind === "solid" ? "solid" : material.pattern;
 
@@ -130,7 +134,7 @@ function MaterialControl({
       <label className="panel__field">
         <span>Fill</span>
         <select
-          aria-label="Fill"
+          aria-label={`${ariaPrefix}Fill`}
           value={fill}
           onChange={(e) => selectFill(e.target.value as FillOption)}
         >
@@ -148,7 +152,7 @@ function MaterialControl({
           <span>Color</span>
           <input
             type="color"
-            aria-label="Color"
+            aria-label={`${ariaPrefix}Color`}
             value={material.color}
             onChange={(e) => onChange({ kind: "solid", color: e.target.value })}
           />
@@ -159,7 +163,7 @@ function MaterialControl({
             <span>Color A</span>
             <input
               type="color"
-              aria-label="Color A"
+              aria-label={`${ariaPrefix}Color A`}
               value={material.colorA}
               onChange={(e) => onChange({ ...material, colorA: e.target.value })}
             />
@@ -168,7 +172,7 @@ function MaterialControl({
             <span>Color B</span>
             <input
               type="color"
-              aria-label="Color B"
+              aria-label={`${ariaPrefix}Color B`}
               value={material.colorB}
               onChange={(e) => onChange({ ...material, colorB: e.target.value })}
             />
@@ -365,6 +369,82 @@ function CrenellationFields({
   );
 }
 
+/**
+ * The shared roof controls (schema v3, phase 2H): a Roof toggle and, when on, the
+ * pitch, the roof material (a SEPARATE material from the wall material), and —
+ * tower/gatehouse only — a Raised-on-posts toggle. The wall run and ramp covers
+ * are always posted, so they show a small note instead of a toggle.
+ *
+ * All edits route through updatePiece (an undoable named action). Toggling Roof
+ * OFF only sets roofed:false — it KEEPS the stored pitch/material so toggling back
+ * on restores them (never wipe the params on toggle-off).
+ */
+function RoofControls({
+  roofed,
+  roofPitch,
+  roofMaterial,
+  raisedOnPosts,
+  onToggle,
+  onPitch,
+  onMaterial,
+  onRaisedOnPosts,
+}: {
+  roofed: boolean;
+  roofPitch: number;
+  roofMaterial: MaterialRef;
+  onToggle: (v: boolean) => void;
+  onPitch: (v: number) => void;
+  onMaterial: (m: MaterialRef) => void;
+  // Present for tower/gatehouse (the posts toggle); omitted for the always-posted
+  // wall run / ramp covers.
+  raisedOnPosts?: boolean;
+  onRaisedOnPosts?: (v: boolean) => void;
+}) {
+  const alwaysPosted = onRaisedOnPosts === undefined;
+  return (
+    <div className="panel__roof" data-roof>
+      <label className="panel__field panel__field--check">
+        <span>Roof</span>
+        <input
+          type="checkbox"
+          aria-label="Roof"
+          checked={roofed}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+      </label>
+      {roofed && (
+        <>
+          <NumberField
+            label="Roof pitch"
+            value={roofPitch}
+            min={0.1}
+            step={0.1}
+            onCommit={onPitch}
+          />
+          {alwaysPosted ? (
+            <p className="panel__hint">The cover is posted (open-sided).</p>
+          ) : (
+            <label className="panel__field panel__field--check">
+              <span>Raised on posts</span>
+              <input
+                type="checkbox"
+                aria-label="Raised on posts"
+                checked={raisedOnPosts ?? false}
+                onChange={(e) => onRaisedOnPosts?.(e.target.checked)}
+              />
+            </label>
+          )}
+          <MaterialControl
+            material={roofMaterial}
+            ariaPrefix="Roof "
+            onChange={onMaterial}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 function TowerPanel({ tower }: { tower: Tower }) {
   const updatePiece = useStore((s) => s.updatePiece);
   const deletePiece = useStore((s) => s.deletePiece);
@@ -416,6 +496,17 @@ function TowerPanel({ tower }: { tower: Tower }) {
       <MaterialControl
         material={tower.material}
         onChange={(m) => updatePiece(tower.id, { material: m })}
+      />
+
+      <RoofControls
+        roofed={tower.roofed}
+        roofPitch={tower.roofPitch}
+        roofMaterial={tower.roofMaterial}
+        raisedOnPosts={tower.raisedOnPosts}
+        onToggle={(v) => updatePiece(tower.id, { roofed: v })}
+        onPitch={(v) => updatePiece(tower.id, { roofPitch: v })}
+        onMaterial={(m) => updatePiece(tower.id, { roofMaterial: m })}
+        onRaisedOnPosts={(v) => updatePiece(tower.id, { raisedOnPosts: v })}
       />
 
       <PlaceOnTopButton />
@@ -475,6 +566,17 @@ function GatehousePanel({ gatehouse }: { gatehouse: Gatehouse }) {
       <MaterialControl
         material={gatehouse.material}
         onChange={(m) => updatePiece(gatehouse.id, { material: m })}
+      />
+
+      <RoofControls
+        roofed={gatehouse.roofed}
+        roofPitch={gatehouse.roofPitch}
+        roofMaterial={gatehouse.roofMaterial}
+        raisedOnPosts={gatehouse.raisedOnPosts}
+        onToggle={(v) => updatePiece(gatehouse.id, { roofed: v })}
+        onPitch={(v) => updatePiece(gatehouse.id, { roofPitch: v })}
+        onMaterial={(m) => updatePiece(gatehouse.id, { roofMaterial: m })}
+        onRaisedOnPosts={(v) => updatePiece(gatehouse.id, { raisedOnPosts: v })}
       />
 
       <PlaceOnTopButton />
@@ -559,6 +661,15 @@ function WallRunPanel({ wall }: { wall: WallRun }) {
       <MaterialControl
         material={wall.material}
         onChange={(m) => updatePiece(wall.id, { material: m })}
+      />
+
+      <RoofControls
+        roofed={wall.roofed}
+        roofPitch={wall.roofPitch}
+        roofMaterial={wall.roofMaterial}
+        onToggle={(v) => updatePiece(wall.id, { roofed: v })}
+        onPitch={(v) => updatePiece(wall.id, { roofPitch: v })}
+        onMaterial={(m) => updatePiece(wall.id, { roofMaterial: m })}
       />
 
       <PlaceOnTopButton />
@@ -674,6 +785,15 @@ function RampPanel({ ramp }: { ramp: Ramp }) {
       <MaterialControl
         material={ramp.material}
         onChange={(m) => updatePiece(ramp.id, { material: m })}
+      />
+
+      <RoofControls
+        roofed={ramp.roofed}
+        roofPitch={ramp.roofPitch}
+        roofMaterial={ramp.roofMaterial}
+        onToggle={(v) => updatePiece(ramp.id, { roofed: v })}
+        onPitch={(v) => updatePiece(ramp.id, { roofPitch: v })}
+        onMaterial={(m) => updatePiece(ramp.id, { roofMaterial: m })}
       />
 
       <PlaceOnTopButton />

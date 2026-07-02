@@ -6,11 +6,18 @@
 // round-trip through Export/Import with the castle. The v1→v2 migration
 // (src/persistence/migrations.ts) leaves existing pieces untouched — flags are a
 // new, list-compatible kind — and just bumps the version.
+//
+// v3 (phase 2H) adds ROOF fields to the roof-host kinds (tower / gatehouse / wall
+// run / ramp — NOT gate / flag / moat). A roof is a per-piece RENDER PARAMETER
+// drawn by the host (like crenellations), NOT an independent object — so it moves
+// / resizes / rides / deletes with the host automatically (no floating-roof
+// problem, no reconciliation). The v2→v3 migration gives every existing host piece
+// `roofed: false` (plus the other roof defaults); gate / flag / moat are untouched.
 
 import type { FlagDesign } from "../flags/types";
 import { DEFAULT_FLAG_ASPECT } from "../flags/types";
 
-export const SCHEMA_VERSION = 2 as const;
+export const SCHEMA_VERSION = 3 as const;
 
 export interface Vec2 {
   x: number;
@@ -40,7 +47,21 @@ export interface PieceBase {
   rotation: number; // degrees about world Y, snapped to 15° steps
 }
 
-export interface Tower extends PieceBase {
+// Roof fields (schema v3, phase 2H). A roof is a per-piece RENDER PARAMETER drawn
+// by the host's own geometry (like crenellations) — never an independent object.
+// Shared by the roof-host kinds (tower / gatehouse / wall run / ramp).
+//   • roofed        — whether a roof is drawn (default false). Toggling it off
+//                     KEEPS roofPitch / roofMaterial so toggling back restores them.
+//   • roofPitch     — the roof's height / steepness (meters of rise to the apex/ridge).
+//   • roofMaterial  — a SEPARATE material from the wall material (default a roof-tile
+//                     solid), so patterns work on roofs for free.
+interface RoofFields {
+  roofed: boolean;
+  roofPitch: number;
+  roofMaterial: MaterialRef;
+}
+
+export interface Tower extends PieceBase, RoofFields {
   kind: "tower";
   profile: "round" | "square";
   radius: number; // meters (round); half-extent for square
@@ -48,9 +69,12 @@ export interface Tower extends PieceBase {
   crenellated: boolean; // battlements toggle
   merlonSize: number; // tooth size, meters (used when crenellated)
   material: MaterialRef; // default a stone solid
+  // raisedOnPosts (tower/gatehouse only): false = roof sits flush on the crown;
+  // true = roof lifted clear of the parapet on corner posts.
+  raisedOnPosts: boolean;
 }
 
-export interface WallRun extends PieceBase {
+export interface WallRun extends PieceBase, RoofFields {
   kind: "wallRun";
   end: Vec2;
   height: number;
@@ -58,9 +82,11 @@ export interface WallRun extends PieceBase {
   crenellated: boolean;
   merlonSize: number;
   material: MaterialRef;
+  // The wall-run cover is ALWAYS posted (an open-sided covered wall-walk is
+  // inherently posts + roof) — so there is no raisedOnPosts toggle here.
 }
 
-export interface Gatehouse extends PieceBase {
+export interface Gatehouse extends PieceBase, RoofFields {
   kind: "gatehouse";
   width: number;
   depth: number;
@@ -68,6 +94,7 @@ export interface Gatehouse extends PieceBase {
   crenellated: boolean;
   merlonSize: number;
   material: MaterialRef;
+  raisedOnPosts: boolean; // flush on the crown (false) or lifted on posts (true)
 }
 
 export interface Gate extends PieceBase {
@@ -77,13 +104,14 @@ export interface Gate extends PieceBase {
   material: MaterialRef;
 }
 
-export interface Ramp extends PieceBase {
+export interface Ramp extends PieceBase, RoofFields {
   kind: "ramp";
   rise: number;
   run: number;
   width: number;
   style: "ramp" | "stair";
   material: MaterialRef;
+  // The ramp cover is ALWAYS posted (an open-sided covered stair) — no toggle.
 }
 
 export interface Moat extends PieceBase {
@@ -131,6 +159,12 @@ export interface Design {
 export const DEFAULT_TOWER_HEIGHT = 8;
 export const DEFAULT_TOWER_RADIUS = 2;
 export const DEFAULT_MERLON_SIZE = 0.6;
+
+// Roof defaults (schema v3, phase 2H). Pitch is the roof's rise to the apex/ridge;
+// the default roof material is a roof-tile solid (a separate slot from the wall
+// material). Starting values, tuned for looks.
+export const DEFAULT_ROOF_PITCH = 3;
+export const DEFAULT_ROOF_MATERIAL: MaterialRef = { kind: "solid", color: "#7c3b2a" };
 
 export const DEFAULT_WALL_HEIGHT = 4;
 export const DEFAULT_WALL_THICKNESS = 0.6;

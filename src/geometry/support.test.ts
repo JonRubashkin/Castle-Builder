@@ -15,6 +15,10 @@ function tower(overrides: Partial<Tower> = {}): Tower {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
+    raisedOnPosts: false,
     ...overrides,
   };
 }
@@ -32,6 +36,10 @@ function gatehouse(overrides: Partial<Gatehouse> = {}): Gatehouse {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
+    raisedOnPosts: false,
     ...overrides,
   };
 }
@@ -147,6 +155,9 @@ describe("resolveSupportAt — the face-attach support rule", () => {
       width: 2,
       style: "ramp",
       material: { kind: "solid", color: "#9a958c" },
+      roofed: false,
+      roofPitch: 3,
+      roofMaterial: { kind: "solid", color: "#7c3b2a" },
     };
     // Anywhere over the ramp's deck still resolves to the ground — nothing seats
     // on a ramp (its top is a slope).

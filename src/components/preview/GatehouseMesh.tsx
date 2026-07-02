@@ -7,11 +7,13 @@ import { useStore } from "../../store/store";
 import { groundHeightAt } from "../../geometry/ground";
 import { gatehouseFootprint } from "../../geometry/gatehouseFootprint";
 import { buildGatehouse } from "../../geometry/gatehouseBuilder";
+import { gatehouseRoof } from "../../geometry/roofs";
 import { snapHorizontal } from "../../geometry/grid";
 import { PATTERN_TILE_METERS } from "../../materials/patterns";
 import { useThreeMaterial } from "../../materials/threeMaterial";
 import { isCleanClick } from "./interaction";
 import { BoxParts } from "./BoxParts";
+import { RoofParts } from "./RoofParts";
 
 function deg2rad(d: number): number {
   return (d * Math.PI) / 180;
@@ -54,6 +56,11 @@ export function GatehouseMesh({ piece }: GatehouseMeshProps) {
   // The pure builder is the single source of the gatehouse's geometry parts.
   const parts = buildGatehouse(piece);
 
+  // Roof (schema v3): a pyramid over the top footprint, optionally on posts, with
+  // its own material. Empty when unroofed. Coexists with crenellations.
+  const roof = gatehouseRoof(piece);
+  const roofMaterial = useThreeMaterial(piece.roofMaterial, { repeat: [2, 2] }, { selected, hovered });
+
   const handleOver = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== "select") return;
     e.stopPropagation();
@@ -92,6 +99,7 @@ export function GatehouseMesh({ piece }: GatehouseMeshProps) {
       >
         <group onPointerOver={handleOver} onPointerOut={handleOut} onClick={handleClick}>
           <BoxParts parts={parts} material={material} />
+          <RoofParts parts={roof} material={roofMaterial} />
         </group>
       </group>
 

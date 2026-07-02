@@ -15,6 +15,9 @@ function ramp(over: Partial<Ramp> = {}): Ramp {
     width: 2,
     style: "ramp",
     material: { kind: "solid", color: "#9a958c" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
     ...over,
   };
 }

@@ -14,6 +14,8 @@ import {
   DEFAULT_MOAT_OUTER_RADIUS,
   DEFAULT_MOAT_WIDTH,
   DEFAULT_RAMP_WIDTH,
+  DEFAULT_ROOF_MATERIAL,
+  DEFAULT_ROOF_PITCH,
   DEFAULT_STONE_MATERIAL,
   DEFAULT_TIMBER_MATERIAL,
   DEFAULT_TOWER_HEIGHT,
@@ -42,6 +44,7 @@ import {
 } from "../flags/library";
 import { flatTopWorldY, resolveSupportAt, type PlacementMode } from "../geometry/support";
 import { allRidersOf, RIDER_BASE_TOLERANCE } from "../geometry/riders";
+import { dropRidersAfterDelete } from "../geometry/deleteDrop";
 import { resolvePlaceOnTop } from "../geometry/placeOnTop";
 import { flagPositionsAlong, type FlagAlongOptions } from "../geometry/flagAlong";
 import { groundHeightAt } from "../geometry/ground";
@@ -347,6 +350,11 @@ export const useStore = create<StoreState>((set, get) => {
         crenellated: false,
         merlonSize: DEFAULT_MERLON_SIZE,
         material: DEFAULT_STONE_MATERIAL,
+        // Roof (schema v3): off by default; params stored so a later toggle-on works.
+        roofed: false,
+        roofPitch: DEFAULT_ROOF_PITCH,
+        roofMaterial: DEFAULT_ROOF_MATERIAL,
+        raisedOnPosts: false,
       };
       commit((design) => {
         design.pieces.push(tower);
@@ -369,6 +377,10 @@ export const useStore = create<StoreState>((set, get) => {
         crenellated: false,
         merlonSize: DEFAULT_MERLON_SIZE,
         material: DEFAULT_STONE_MATERIAL,
+        roofed: false,
+        roofPitch: DEFAULT_ROOF_PITCH,
+        roofMaterial: DEFAULT_ROOF_MATERIAL,
+        raisedOnPosts: false,
       };
       commit((design) => {
         design.pieces.push(gatehouse);
@@ -391,6 +403,10 @@ export const useStore = create<StoreState>((set, get) => {
         crenellated: false,
         merlonSize: DEFAULT_MERLON_SIZE,
         material: DEFAULT_STONE_MATERIAL,
+        // Wall-walk cover (schema v3): off by default; always posted when on.
+        roofed: false,
+        roofPitch: DEFAULT_ROOF_PITCH,
+        roofMaterial: DEFAULT_ROOF_MATERIAL,
       };
       commit((design) => {
         design.pieces.push(wall);
@@ -451,6 +467,10 @@ export const useStore = create<StoreState>((set, get) => {
         width: DEFAULT_RAMP_WIDTH,
         style: "ramp",
         material: DEFAULT_STONE_MATERIAL,
+        // Incline cover (schema v3): off by default; always posted when on.
+        roofed: false,
+        roofPitch: DEFAULT_ROOF_PITCH,
+        roofMaterial: DEFAULT_ROOF_MATERIAL,
       };
       commit((design) => {
         design.pieces.push(ramp);
@@ -650,8 +670,14 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     deletePiece: (id) => {
+      // DELETE-DROP (riding cleanup): removing a piece must not leave its riders
+      // floating. dropRidersAfterDelete removes the piece AND re-seats each
+      // orphaned direct rider onto whatever support is now beneath it (the next
+      // top, else the ground), carrying its transitive sub-stack down rigidly —
+      // all through the SAME resolveSupportAt riding uses. ONE undoable step
+      // (delete + the drops reverse together).
       commit((design) => {
-        design.pieces = design.pieces.filter((p) => p.id !== id);
+        design.pieces = dropRidersAfterDelete(design.pieces, id);
         return design;
       });
       set((state) => ({

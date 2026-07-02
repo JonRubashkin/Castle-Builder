@@ -7,10 +7,12 @@ import { useStore } from "../../store/store";
 import { groundHeightAt } from "../../geometry/ground";
 import { towerFootprint } from "../../geometry/towerFootprint";
 import { buildTower } from "../../geometry/towerBuilder";
+import { towerRoof } from "../../geometry/roofs";
 import { snapHorizontal } from "../../geometry/grid";
 import { PATTERN_TILE_METERS } from "../../materials/patterns";
 import { useThreeMaterial } from "../../materials/threeMaterial";
 import { isCleanClick } from "./interaction";
+import { RoofParts } from "./RoofParts";
 
 function deg2rad(d: number): number {
   return (d * Math.PI) / 180;
@@ -62,6 +64,11 @@ export function TowerMesh({ piece }: TowerMeshProps) {
   // The pure builder is the single source of the tower's geometry parts (shaft
   // + any crenellation teeth). The renderer just maps each part to a mesh.
   const parts = buildTower(piece);
+
+  // Roof (schema v3): a per-piece render parameter drawn alongside the shaft, with
+  // its own material. Empty when unroofed. Coexists with crenellations.
+  const roof = towerRoof(piece);
+  const roofMaterial = useThreeMaterial(piece.roofMaterial, { repeat: [2, 2] }, { selected, hovered });
 
   const handleOver = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== "select") return;
@@ -124,6 +131,7 @@ export function TowerMesh({ piece }: TowerMeshProps) {
               )}
             </mesh>
           ))}
+          <RoofParts parts={roof} material={roofMaterial} />
         </group>
       </group>
 

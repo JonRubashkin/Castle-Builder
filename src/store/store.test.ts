@@ -385,7 +385,7 @@ describe("store: newDesign (the New Castle reset)", () => {
     const s = useStore.getState();
     expect(s.design).toEqual(createEmptyDesign());
     expect(s.design.pieces).toEqual([]);
-    expect(s.design.schemaVersion).toBe(2);
+    expect(s.design.schemaVersion).toBe(3);
     expect(s.selectedId).toBeNull(); // no surviving reference to a gone piece
     expect(s.history.past).toEqual([]);
     expect(s.history.future).toEqual([]);
