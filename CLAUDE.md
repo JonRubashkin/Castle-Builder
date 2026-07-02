@@ -162,11 +162,75 @@ is always **undoable**.
   delta 0 → **riders are untouched**. If a radius/width shrink drops a rider off the
   new (smaller) top, we **do not chase it** (leave it; the user can move it — "don't
   auto-mutate surprisingly").
+- **Ride on delete — "delete-drop" (phase 2H, `deletePiece`).** Deleting a piece
+  must NOT leave the pieces that were riding on it floating. The pure helper
+  `dropRidersAfterDelete(pieces, deletedId)` (`src/geometry/deleteDrop.ts`) removes
+  the piece AND re-seats each orphaned **direct** rider onto whatever support is now
+  beneath it — the next piece's top if one is there, else the ground — via the SAME
+  `resolveSupportAt` (never a literal ground-y). Each orphaned rider carries its own
+  **transitive** riders (reusing `allRidersOf`) down by the same vertical delta, so
+  a sub-stack falls as a **rigid unit**. It **reuses the 2G riding geometry** — there
+  is **NO second notion of "resting on"**. All in the delete's **one undo step**
+  (delete + the drops reverse together). Worked examples that must hold:
+  A-on-B-on-C (C on ground) → delete C → B re-seats to the ground and A stays on B;
+  delete the middle B → A re-seats onto C's top (the support now beneath it), not
+  the ground.
 - **Out of scope for 2G:** stored parent/child relationships or any persisted
   stacking graph; reconciliation; riders re-seating their own support during a ride
-  (they translate rigidly); auto-roofs; detach/re-parent UI.
+  (they translate rigidly); detach/re-parent UI. (**Roofs ARE built in phase 2H**,
+  but as per-piece builder-drawn parameters — NOT auto-detected roof objects; see
+  "Roofs (phase 2H)".)
 
-## Data model (schema v2)
+## Roofs (phase 2H)
+
+Any **tower / gatehouse / wall run / ramp** (NOT gate / flag / moat) can carry a
+**roof** — a **per-piece RENDER PARAMETER drawn by the host** (exactly like
+crenellations), **never an independent object**. It has no identity, no placement,
+and no persistence beyond the schema-v3 roof fields (`roofed` / `roofPitch` /
+`roofMaterial`, plus `raisedOnPosts` on tower/gatehouse). Because a roof is derived
+FRESH from the piece every render, it **moves / resizes / rides / deletes with the
+host automatically** — there is **no floating-roof problem, no reconciliation, and
+NO roof auto-detection / mass-decomposition system** (the prior project's failed
+Phase 5.1 stays dead — explicitly forbidden).
+
+- **Pure geometry** (`src/geometry/roofs.ts`, unit-tested). `towerRoof` /
+  `gatehouseRoof` / `wallRunRoof` / `rampRoof` (+ a `roofParts(piece)` dispatch)
+  return roof parts in the host's LOCAL space; an unroofed host (or a non-host)
+  returns `[]`. Shapes:
+  - **Round tower → cone** sized to the tower radius, height from `roofPitch`.
+  - **Square tower / gatehouse → pyramid** sized to the top footprint (width ×
+    depth), height from `roofPitch`.
+  - **Wall run → posted gabled cover:** a ridge along the wall's **length** (reusing
+    `wallRunLength` — one source of truth), two pitched slopes, on posts down both
+    sides (an open covered wall-walk).
+  - **Ramp → posted incline cover** parallel to the slope (reusing the ramp's
+    `rise`/`run`: the cover pitch matches `buildRamp`'s slab angle and its length is
+    `hypot(rise, run)`), on posts up the sides — an open covered stair/ramp.
+- **Posts** are **ALWAYS** present for the wall-walk + ramp covers and **OPTIONAL**
+  for tower/gatehouse via `raisedOnPosts` (default **flush on the crown**). When
+  raised/posted the roof sits atop posts of a walkable clearance; when flush the cap
+  sits directly on the crown. Posts and roof parts **use the `roofMaterial`**.
+- **Coexist with crenellations:** a crenellated + roofed host draws **both** — the
+  teeth (from the piece builder) around the rim and the roof (from `roofs.ts`) rising
+  within/above; raised posts clear the parapet (their height includes the merlon
+  height). Neither hides the other (independent part sets).
+- **Rendering.** A shared `RoofParts` renderer (`src/components/preview/RoofParts.tsx`)
+  maps each roof part to a mesh whose material flows through the shared
+  `materialRefToThreeMaterial` helper (patterns work on roofs for free); the pyramid
+  is composed from a 4-sided cone (rotated 45° + scaled to the footprint — no custom
+  geometry / no CSG). Each host mesh renders its roof parts inside the same
+  positioned/rotated group as its wall parts, with a separate `roofMaterial`.
+- **Panel controls** (`RoofControls` in `PiecePanel.tsx`): a **Roof** toggle and,
+  when on, a **pitch** field, a **roof material** control (its own Fill/Color), and
+  — tower/gatehouse only — a **Raised on posts** toggle (wall run / ramp show a note
+  that the cover is posted). Every edit is an undoable `updatePiece`; toggling the
+  roof **off keeps** the stored pitch/material (never wiped on toggle-off).
+- **Out of scope for 2H:** roofs as independent placeable objects; any
+  auto-detection / mass-decomposition / reconciliation (Phase 5.1 stays dead);
+  gabled-vs-hipped choice, overhang/eave detail, valley mitering; roofs on
+  gate/flag/moat; freeform paint; terrain.
+
+## Data model (schema v3)
 
 This is the persisted design document and the core of the Zustand store. Keep field
 names exactly as written. **Do not forward-declare speculative fields for deferred
@@ -184,11 +248,18 @@ untouched); a **future unknown version is still refused**. Add the next step to
 **2Fe.1** added an OPTIONAL `Flag.autoFlagHostId` provenance marker — additive
 within v2, so it needs **no bump/migration** (old saves simply omit it; the
 validator type-checks it when present and preserves it on round-trip, exactly like
-adding a `PatternId`).
+adding a `PatternId`). **v3 (phase 2H) added ROOF fields** (`roofed` / `roofPitch`
+/ `roofMaterial`, plus `raisedOnPosts` on tower/gatehouse only) to the roof-host
+kinds (tower / gatehouse / wall run / ramp — **NOT** gate / flag / moat). The bump
+ships a **v2 → v3 migration step** (`migrateDesign`): existing host pieces get
+`roofed: false` plus the roof defaults (`raisedOnPosts: false` for tower/gatehouse);
+gate / flag / moat are untouched. A roof is a per-piece RENDER PARAMETER (drawn by
+the host like crenellations) — **NOT an object** — so it has no identity, no
+placement, and no persistence beyond these fields (see "Roofs (phase 2H)" below).
 
 ```ts
 interface Design {
-  schemaVersion: 2;
+  schemaVersion: 3;
   name: string;
   pieces: Piece[];          // flat list — NO levels[]. Every piece carries its own
                             // base height; stacking is explicit vertical placement.
@@ -205,7 +276,18 @@ interface PieceBase {
   rotation: number;         // degrees about world Y, snapped to 15° steps
 }
 
-interface Tower extends PieceBase {
+// Roof fields (schema v3, phase 2H) — shared by the roof-host kinds (tower /
+// gatehouse / wall run / ramp). A roof is a per-piece RENDER PARAMETER drawn by
+// the host's own geometry (like crenellations), NOT an independent object.
+interface RoofFields {
+  roofed: boolean;          // whether a roof is drawn (default false)
+  roofPitch: number;        // roof height / steepness (meters of rise to apex/ridge)
+  roofMaterial: MaterialRef; // SEPARATE from the wall material (default roof-tile solid)
+  // NOTE: `raisedOnPosts` lives on Tower/Gatehouse ONLY (below). Wall run + ramp
+  // covers are ALWAYS posted (open-sided), so they carry no toggle.
+}
+
+interface Tower extends PieceBase, RoofFields {
   kind: "tower";
   profile: "round" | "square";
   radius: number;           // meters (round); half-extent for square
@@ -213,9 +295,10 @@ interface Tower extends PieceBase {
   crenellated: boolean;     // battlements toggle
   merlonSize: number;       // tooth size, meters (used when crenellated)
   material: MaterialRef;    // default a stone solid
+  raisedOnPosts: boolean;   // false = roof flush on the crown; true = lifted on posts
 }
 
-interface WallRun extends PieceBase {
+interface WallRun extends PieceBase, RoofFields {
   kind: "wallRun";
   // A horizontal piece between two grid-snapped points. `position` is one end;
   // `end` the other (both world XZ). `rotation` is unused for wall runs (the two
@@ -226,9 +309,10 @@ interface WallRun extends PieceBase {
   crenellated: boolean;
   merlonSize: number;
   material: MaterialRef;
+  // roof cover is always posted (an open covered wall-walk) — no raisedOnPosts.
 }
 
-interface Gatehouse extends PieceBase {
+interface Gatehouse extends PieceBase, RoofFields {
   kind: "gatehouse";
   width: number;            // meters (along its facing)
   depth: number;            // meters
@@ -236,6 +320,7 @@ interface Gatehouse extends PieceBase {
   crenellated: boolean;
   merlonSize: number;
   material: MaterialRef;
+  raisedOnPosts: boolean;   // false = roof flush on the crown; true = lifted on posts
 }
 
 interface Gate extends PieceBase {
@@ -245,7 +330,7 @@ interface Gate extends PieceBase {
   material: MaterialRef;    // default a timber solid
 }
 
-interface Ramp extends PieceBase {
+interface Ramp extends PieceBase, RoofFields {
   kind: "ramp";             // ramp / straight stair — connects two heights
   // The most complex builder. Connects `base` up to `base + rise` over `run`.
   rise: number;             // meters of vertical climb
@@ -253,6 +338,7 @@ interface Ramp extends PieceBase {
   width: number;            // meters
   style: "ramp" | "stair";  // smooth ramp vs. stepped stair
   material: MaterialRef;
+  // roof cover is always posted (an open covered ramp/stair) — no raisedOnPosts.
 }
 
 interface Moat extends PieceBase {
@@ -675,8 +761,15 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
   geometry via `resolveSupportAt`; see "Riding (phase 2G)"). Still **no stored
   parent/child links, no relationship graph, no reconciliation**, and **no
   wall↔tower attachment** (walls still just overlap towers). Riders re-seating
-  their own support during a ride, auto-roofs, and detach/re-parent UI are all
-  **out of scope**.
+  their own support during a ride and detach/re-parent UI are **out of scope**.
+  **Delete-drop (phase 2H)** re-seats a deleted piece's orphaned riders onto the
+  support beneath them (one undo step, reusing the same riding geometry).
+- **Roofs (phase 2H) are BUILT, but ONLY as per-piece builder-drawn RENDER
+  PARAMETERS** (schema v3 fields on tower / gatehouse / wall run / ramp — NOT
+  gate/flag/moat). They are **NOT independent objects** and there is **NO roof
+  auto-detection / mass-decomposition / reconciliation** system (Phase 5.1 stays
+  dead — explicitly forbidden). Deferred: gabled-vs-hipped choice, overhang/eave
+  detail, valley mitering. See "Roofs (phase 2H)".
 - No real lighting/illumination design; no measurements/annotations beyond simple
   piece dimensions in the panel.
 - Accessibility basics only: focus styles, button labels, no exotic ARIA work.
@@ -941,6 +1034,16 @@ generate-once-and-explicit-beats-clever-auto lesson.
   (one horizontal delta to the whole transitive set) and the resize/raise commit
   (the same vertical delta on a top-height/base change) — each ONE undo step. See
   "Riding (phase 2G)".
+- **2H (roofs + delete-drop — DONE):** two unrelated slices. **Delete-drop**
+  (its own commit): deleting a piece re-seats its orphaned riders onto the support
+  now beneath them (next top, else ground), sub-stacks falling rigidly, in the
+  delete's ONE undo step — reusing the 2G riding geometry
+  (`src/geometry/deleteDrop.ts`). **Roofs**: a per-piece RENDER PARAMETER (schema
+  v3 fields + a v2→v3 migration) drawn by the host — cone (round tower) / pyramid
+  (square tower, gatehouse) / posted gabled cover (wall run) / posted incline cover
+  (ramp); NOT gate/flag/moat. Pure `src/geometry/roofs.ts`, a `RoofParts` renderer,
+  `RoofControls` panel controls. **NO roof objects, NO auto-detection /
+  reconciliation** (Phase 5.1 stays dead). See "Roofs (phase 2H)".
 - **2+:** raised terrain (tiers / motte via `groundHeightAt`), **persisted**
   parent/child relationships (2G already does riding without them), wall↔tower
   attachment, more pieces, more freedom. Do not start any of this without

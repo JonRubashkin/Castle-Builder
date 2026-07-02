@@ -49,7 +49,24 @@ runs client-side — no backend.
 > top right now?", reusing the same support rule as face-attach) — there are **no
 > stored parent/child links, no relationship graph, and no reconciliation**. A flag
 > on a tower rides; nothing rides a moat; a horizontal-only edit (material, radius,
-> rotation) moves no riders. A wrong guess is always undoable.
+> rotation) moves no riders. A wrong guess is always undoable. **Delete-drop:**
+> deleting a piece no longer leaves its riders floating — each orphaned rider
+> **re-seats onto whatever support is now beneath it** (the next piece's top, else
+> the ground), carrying its own sub-stack down as a rigid unit, all in the delete's
+> **one undo step** (reusing the same riding geometry).
+>
+> **Roofs (phase 2H) are built.** Any **tower, gatehouse, wall run, or ramp** (NOT
+> gate / flag / moat) can carry a **roof** — a **per-piece render parameter** drawn
+> by the host itself (exactly like crenellations), **not** an independent object.
+> A **round tower** gets a **cone**, a **square tower / gatehouse** a **pyramid**, a
+> **wall run** a **posted gabled cover** (an open covered wall-walk), and a **ramp**
+> a **posted cover parallel to the incline**. Roofs have their **own material**
+> (separate from the wall material) and **coexist with crenellations** (teeth around
+> the rim, roof rising within/above). tower/gatehouse roofs sit **flush on the
+> crown** by default or can be **raised on posts**; the wall-walk and ramp covers
+> are **always posted**. Because a roof is derived fresh from the piece, it
+> **moves / resizes / rides / deletes with the host automatically** — there is **no
+> floating-roof problem and no auto-detection / reconciliation** system.
 
 ## Tech stack
 
@@ -92,6 +109,7 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Place on top of…** | A button in a selected piece's properties panel (every piece **except the moat**). Click it to **arm** a one-shot action (a banner + crosshair prompt you to click a target); the **next click on another piece** seats the selected piece on **that piece's top**, centered on it (a wall recenters both endpoints), as **one undo step** — the piece stays selected and the action ends. Overhang is fine (a larger piece just overhangs). **Excluded targets: the moat, ramps, and flags** (no flat top) — clicking one stays armed. `Esc`, a click on empty ground, or clicking the selected piece itself **cancels** with the selection unchanged. |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (it **snaps to a nearby tower / gatehouse anchor**, shown by a snap ring, else the 0.1 m grid; one undo step). Start/End coordinates are also editable as number fields in the panel (the precise/keyboard path — plain grid, no anchor snap). |
 | Edit a piece | Use the properties panel: tower (profile, radius/half-extent, height, rotation), gatehouse (width/depth/height, rotation), wall (height, thickness, endpoints) — each with **crenellations** (toggle + merlon size) — gate (width, height, rotation), moat (ring: inner/outer radii; segment: width), **ramp** (style ramp/stair, rise, run, width, **free rotation** — 1° steps, un-snapped, matching its precise two-click aim), **flag** (pole height, cloth width, rotation, plus **Edit design…** to open the flag editor — compose the embedded heraldic design: add/reorder field, stripes, and charges, with a live preview and drag-on-preview for charges; the editor **also** exposes the flag's **pole height** and **cloth width** so you can fully customize a flag in one place — those are piece properties committed with the design on **Apply**, and are **never** saved to the flag library). Each castle piece carries a **material** (solid color or a stone / brick / thatch / water pattern); a flag's cloth is skinned by its embedded design instead. |
+| **Roof** | A selected **tower / gatehouse / wall run / ramp** panel has a **Roof** toggle; turning it on reveals a **pitch** field, a **roof material** control (its own Fill/Color, separate from the wall material), and — for **tower / gatehouse** only — a **Raised on posts** toggle (flush on the crown by default; the wall-walk / ramp covers are always posted, shown by a note). Shapes: round tower → cone, square tower / gatehouse → pyramid, wall run → posted gabled cover, ramp → posted incline cover. Roofs **coexist with crenellations** and **ride / move / resize / delete with the host** (they're a per-piece parameter, not a separate object). Every roof edit is **undoable**; toggling the roof **off keeps** its stored pitch/material so toggling back on restores them. (Gate, flag, and moat can't be roofed.) |
 | **Add flags along** | A button in a selected **wall run** or **gatehouse** panel: it **generates a row of flags** evenly spaced across the host's **top edge** (a wall along its length; a gatehouse across its width), inset from the ends, as **one undo step**. Pick the **flag spacing**, then a small **chooser** for which design each flag embeds: **Use last design** (the last design you edited, or a sensible default), **Pick from library** (a saved design), or **Design new** (compose one in the flag editor, then place). Clicking it again **re-runs and REPLACES**: it first removes every flag it previously generated **for that host** (including any you hand-moved), then lays a fresh set — so after resizing a wall, one click re-spaces its flags (all one undo step). It stays **generate-once** *between* clicks: the created flags are ordinary independent pieces (selectable / movable / editable / deletable) and don't follow later host edits until you explicitly re-run. |
 | Delete | `Delete` / `Backspace`, or the panel's Delete button. |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`), or the toolbar buttons. History is capped at 100. |
@@ -102,10 +120,11 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 
 Your work **autosaves into this browser only** (a single `localStorage` slot).
 Clearing browser data erases it, so use **Export JSON** to keep a backup and
-**Import JSON** to restore it. Designs carry a `schemaVersion` (currently **v2**);
-an **older** design is **migrated** forward on open (v1 → v2 just adds flags,
-leaving existing pieces untouched), while a file from a **newer, unknown** version
-is refused rather than risking corruption. An exported castle carries its flags
+**Import JSON** to restore it. Designs carry a `schemaVersion` (currently **v3**);
+an **older** design is **migrated** forward on open (v1 → v2 just adds flags; v2 →
+v3 gives existing roof-host pieces `roofed: false` plus the roof defaults — both
+leaving existing pieces otherwise untouched), while a file from a **newer, unknown**
+version is refused rather than risking corruption. An exported castle carries its flags
 inline (each flag embeds its own design), so Export/Import round-trips them for
 free.
 
@@ -250,8 +269,9 @@ src/
                        the shared oriented-rectangle footprint, the ring footprint,
                        the ramp/stair builder + two-point connection helper,
                        support/face-attach resolution, the geometry-derived
-                       riders helper (riders.ts, phase 2G), wall-endpoint anchor
-                       snapping, iso camera) — no React, no store
+                       riders helper (riders.ts, phase 2G) + delete-drop
+                       (deleteDrop.ts), the pure roof geometry (roofs.ts, phase 2H),
+                       wall-endpoint anchor snapping, iso camera) — no React, no store
   materials/           MaterialRef → THREE factory + procedural pattern textures
                        (stone/brick/thatch/opaque-water), generated at runtime;
                        the shared canvasToTexture helper (patterns + flags)
@@ -260,9 +280,9 @@ src/
                        symbol library (symbols/), and the dev #flags QA route
                        (the flag *piece* builder/mesh live under geometry/ +
                        components/preview, consuming flagTexture)
-  store/               Zustand store, schema v2, undo/redo, ?e2e=1 test accessor
+  store/               Zustand store, schema v3, undo/redo, ?e2e=1 test accessor
   persistence/         autosave + JSON export/import + schema validation +
-                       stepwise migrations (migrations.ts, e.g. v1 → v2)
+                       stepwise migrations (migrations.ts, e.g. v1 → v2 → v3)
   components/preview/   the R3F scene, ground/grid, pieces, gizmo, placement
   components/ui/        toolbar, properties panel (+ Place-on-top action),
                        Keep-on-ground toggle, place-on-top hint banner,
@@ -314,8 +334,18 @@ Build command `npm run build`, output `dist/`.
   tower is included; nothing rides a moat; it matches `resolveSupportAt`) and the
   **store riding paths** (move applies one delta to the whole set as one undo step;
   a resize/raise applies the vertical delta to riders; non-height edits move
-  nothing), the **v1 → v2 migration**
-  (a v1 fixture loads as v2 with its pieces untouched) and **flag validation** (a
+  nothing), **delete-drop (phase 2H)** — `dropRidersAfterDelete` (both worked
+  examples: deleting the base drops the sub-stack to the ground; deleting the middle
+  re-seats the top onto the next piece's top; a 3-high sub-stack falls rigidly;
+  non-riders untouched; pure/no-mutation), the **roof geometry (phase 2H)** —
+  `roofs.ts` (cone from radius+pitch, pyramid from footprint+pitch, wall-cover ridge
+  = wall length with opposed gable slopes, ramp-cover pitch parallels the ramp slab
+  + slope length, always-posted wall/ramp with post height/count, raised
+  tower/gatehouse posts + lift, crenellated+roofed drawing both, roofed:false draws
+  nothing), the **v1 → v2 and v2 → v3 migrations**
+  (a v1 fixture loads at the current version untouched; a v2 fixture gains
+  `roofed: false` + roof defaults on host pieces while a gate stays untouched) and
+  **flag validation** (a
   flag round-trips its embedded design; malformed flags are rejected), and schema
   validation.
 - E2E tests cover clean boot, placing a tower, select + delete, undo/redo,
@@ -340,7 +370,13 @@ Build command `npm run build`, output `dist/`.
   the validated load path), **riding (phase 2G)** (moving a tower moves a flag on
   its top by the same delta with one undo reversing both; a 3-high stack all rides
   the bottom; raising a tower's height raises its rider while a material edit moves
-  nothing; a piece near-but-not-on-top does not ride), and **New Castle** (Cancel/`Esc` keep the
+  nothing; a piece near-but-not-on-top does not ride), **delete-drop (phase 2H)**
+  (deleting the base of a stack re-seats the survivors — the sub-stack drops to the
+  ground — and one undo restores it), **roofs (phase 2H)** (toggle a roof on a tower
+  via the panel and assert `roofed` + stored params; change pitch/material;
+  raise-on-posts on a gatehouse; wall-run + ramp covers exist in state; a roof
+  rides/moves/deletes with its host; crenellated+roofed coexist), and **New Castle**
+  (Cancel/`Esc` keep the
   design; confirm clears it + selection + undo history and survives a reload as
   empty). They read app state
   through a test-only accessor exposed at `window.__CASTLE_E2E__` when the page is
