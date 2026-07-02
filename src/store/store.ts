@@ -42,6 +42,7 @@ import {
 } from "../flags/library";
 import { flatTopWorldY, resolveSupportAt, type PlacementMode } from "../geometry/support";
 import { allRidersOf, RIDER_BASE_TOLERANCE } from "../geometry/riders";
+import { dropRidersAfterDelete } from "../geometry/deleteDrop";
 import { resolvePlaceOnTop } from "../geometry/placeOnTop";
 import { flagPositionsAlong, type FlagAlongOptions } from "../geometry/flagAlong";
 import { groundHeightAt } from "../geometry/ground";
@@ -650,8 +651,14 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     deletePiece: (id) => {
+      // DELETE-DROP (riding cleanup): removing a piece must not leave its riders
+      // floating. dropRidersAfterDelete removes the piece AND re-seats each
+      // orphaned direct rider onto whatever support is now beneath it (the next
+      // top, else the ground), carrying its transitive sub-stack down rigidly —
+      // all through the SAME resolveSupportAt riding uses. ONE undoable step
+      // (delete + the drops reverse together).
       commit((design) => {
-        design.pieces = design.pieces.filter((p) => p.id !== id);
+        design.pieces = dropRidersAfterDelete(design.pieces, id);
         return design;
       });
       set((state) => ({

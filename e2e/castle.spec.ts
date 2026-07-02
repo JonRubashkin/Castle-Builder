@@ -1945,3 +1945,47 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     expect(flag.position).toEqual({ x: 3, y: 0 }); // stayed put — not a rider
   });
 });
+
+test.describe("Castle Builder — delete-drop (riding cleanup)", () => {
+  test("deleting the base of a stack re-seats the survivors; one undo restores", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // Build A-on-B-on-C (C on the ground) as three stacked towers at the origin.
+    const ids = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const cId = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      const c = api.getPieces().find((p: any) => p.id === cId);
+      const bId = api
+        .getState()
+        .addTower({ position: { x: 0, y: 0 }, base: c.base + c.height });
+      const b = api.getPieces().find((p: any) => p.id === bId);
+      const aId = api
+        .getState()
+        .addTower({ position: { x: 0, y: 0 }, base: b.base + b.height });
+      return { aId, bId, cId, cHeight: c.height };
+    });
+    await expect.poll(() => pieceCount(page)).toBe(3);
+
+    // Delete C (the base). B should re-seat on the ground (0); A rides B down.
+    await page.evaluate((cId) => {
+      (window as any).__CASTLE_E2E__.getState().deletePiece(cId);
+    }, ids.cId);
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const after = await pieces(page);
+    const b = after.find((p) => p.id === ids.bId);
+    const a = after.find((p) => p.id === ids.aId);
+    expect(after.find((p) => p.id === ids.cId)).toBeUndefined();
+    expect(b.base).toBeCloseTo(0, 6); // B dropped to the ground
+    expect(a.base).toBeCloseTo(b.base + b.height, 6); // A stayed on B
+
+    // ONE undo restores C and the original bases together.
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(3);
+    const restored = await pieces(page);
+    expect(restored.find((p) => p.id === ids.cId)).toBeTruthy();
+    expect(restored.find((p) => p.id === ids.bId).base).toBeCloseTo(ids.cHeight, 6);
+  });
+});
