@@ -115,4 +115,89 @@ describe("store: addFlagsAlong (2Fe auto-place-along)", () => {
   it("is a no-op for a missing host id", () => {
     expect(useStore.getState().addFlagsAlong("nope")).toEqual([]);
   });
+
+  it("tags each generated flag with its host id; hand-placed flags carry no marker", () => {
+    const wallId = useStore
+      .getState()
+      .addWallRun({ position: { x: 0, y: 0 }, end: { x: 12, y: 0 }, base: 0 });
+    useStore.getState().addFlagsAlong(wallId, { spacing: 4 });
+    for (const f of flags()) expect(f.autoFlagHostId).toBe(wallId);
+
+    // A hand-placed flag has no provenance marker.
+    const handId = useStore.getState().addFlag({ position: { x: 30, y: 0 }, base: 0 });
+    const hand = flags().find((f) => f.id === handId) as Flag;
+    expect(hand.autoFlagHostId).toBeUndefined();
+  });
+
+  it("re-run REPLACES: a second add removes the prior tagged set and lays a fresh one", () => {
+    const wallId = useStore
+      .getState()
+      .addWallRun({ position: { x: 0, y: 0 }, end: { x: 12, y: 0 }, base: 0 });
+
+    const first = useStore.getState().addFlagsAlong(wallId, { spacing: 4 });
+    expect(flags()).toHaveLength(3);
+
+    // Re-run with a tighter spacing → a DIFFERENT count, and NONE of the old ids
+    // survive (wholesale replace, not append).
+    const second = useStore.getState().addFlagsAlong(wallId, { spacing: 2 });
+    const ids = flags().map((f) => f.id);
+    expect(flags()).toHaveLength(second.length);
+    expect(second.length).not.toBe(first.length);
+    for (const oldId of first) expect(ids).not.toContain(oldId);
+    for (const newId of second) expect(ids).toContain(newId);
+  });
+
+  it("re-run replaces even flags the user hand-moved after generation", () => {
+    const wallId = useStore
+      .getState()
+      .addWallRun({ position: { x: 0, y: 0 }, end: { x: 12, y: 0 }, base: 0 });
+    const first = useStore.getState().addFlagsAlong(wallId, { spacing: 4 });
+
+    // The user drags one generated flag far away — it keeps its host marker.
+    useStore.getState().updatePiece(first[0], { position: { x: 99, y: 99 } });
+
+    // A re-run still removes it (wholesale — including hand-moved tagged flags).
+    useStore.getState().addFlagsAlong(wallId, { spacing: 4 });
+    const ids = flags().map((f) => f.id);
+    expect(ids).not.toContain(first[0]);
+  });
+
+  it("re-run leaves flags tagged to a DIFFERENT host untouched", () => {
+    const wallA = useStore
+      .getState()
+      .addWallRun({ position: { x: 0, y: 0 }, end: { x: 12, y: 0 }, base: 0 });
+    const wallB = useStore
+      .getState()
+      .addWallRun({ position: { x: 0, y: 20 }, end: { x: 12, y: 20 }, base: 0 });
+    useStore.getState().addFlagsAlong(wallA, { spacing: 4 });
+    const bIds = useStore.getState().addFlagsAlong(wallB, { spacing: 4 });
+
+    // Re-run on wall A: wall B's flags must all survive verbatim.
+    useStore.getState().addFlagsAlong(wallA, { spacing: 4 });
+    const surviving = flags().filter((f) => f.autoFlagHostId === wallB).map((f) => f.id);
+    expect(surviving.sort()).toEqual([...bIds].sort());
+  });
+
+  it("re-run is ONE undo step: undo restores the prior tagged set exactly", () => {
+    const wallId = useStore
+      .getState()
+      .addWallRun({ position: { x: 0, y: 0 }, end: { x: 12, y: 0 }, base: 0 });
+    const first = useStore.getState().addFlagsAlong(wallId, { spacing: 4 });
+    const before = flags()
+      .map((f) => f.id)
+      .sort();
+
+    const pastBefore = useStore.getState().history.past.length;
+    useStore.getState().addFlagsAlong(wallId, { spacing: 2 });
+    // The whole replace is a single history entry.
+    expect(useStore.getState().history.past.length).toBe(pastBefore + 1);
+
+    // One undo brings back exactly the first batch (same ids, same count).
+    useStore.getState().undo();
+    const after = flags()
+      .map((f) => f.id)
+      .sort();
+    expect(after).toEqual(before);
+    expect(flags().map((f) => f.id).sort()).toEqual([...first].sort());
+  });
 });

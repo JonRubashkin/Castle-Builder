@@ -495,7 +495,8 @@ export const useStore = create<StoreState>((set, get) => {
       // Each generated flag EMBEDS its own copy of the design (the embed model),
       // so they are indistinguishable from hand-placed flags — independently
       // selectable / movable / editable / deletable afterward. Generate-once: they
-      // carry no link back to the host.
+      // carry no LIVE link back to the host. They DO carry a provenance MARKER
+      // (autoFlagHostId) so a re-run can find and replace exactly this host's set.
       const source = chosenDesign ?? createDefaultFlagDesign();
       const flags: Flag[] = placements.map((pl) => ({
         id: nextId(),
@@ -506,10 +507,18 @@ export const useStore = create<StoreState>((set, get) => {
         design: clone(source),
         poleHeight: DEFAULT_FLAG_POLE_HEIGHT,
         clothWidth: DEFAULT_FLAG_CLOTH_WIDTH,
+        autoFlagHostId: hostId,
       }));
       const ids = flags.map((f) => f.id);
-      // ONE undoable step: all the flags appear (and undo removes them) together.
+      // ONE undoable step that RE-RUN-REPLACES: first remove every flag currently
+      // tagged to this host (a WHOLESALE replace — including any the user hand-moved
+      // after a prior generation; this is explicit and user-triggered, so the user
+      // simply doesn't re-run if they've tweaked flags they want to keep), then push
+      // the fresh batch. Undo reverses the whole replace (removals + additions).
       commit((design) => {
+        design.pieces = design.pieces.filter(
+          (p) => !(p.kind === "flag" && p.autoFlagHostId === hostId),
+        );
         design.pieces.push(...flags);
         return design;
       });

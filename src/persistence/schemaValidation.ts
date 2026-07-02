@@ -134,6 +134,13 @@ function validatePiece(value: unknown, index: number): Piece {
     if (typeof value.clothWidth !== "number") {
       throw new DesignValidationError(`pieces[${index}].clothWidth must be a number`);
     }
+    // Auto-placement provenance marker (2Fe.1): optional; when present it must be a
+    // string. Additive within v2 (no version bump) — old saves simply omit it.
+    if (value.autoFlagHostId !== undefined && typeof value.autoFlagHostId !== "string") {
+      throw new DesignValidationError(
+        `pieces[${index}].autoFlagHostId must be a string when present`,
+      );
+    }
     validateFlagDesign(value.design, index);
   }
   return value as unknown as Piece;
