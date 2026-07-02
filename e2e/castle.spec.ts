@@ -1788,4 +1788,160 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     await expect(page.getByRole("dialog")).toBeHidden();
     expect(await pieceCount(page)).toBe(1); // unchanged
   });
+
+  // --- Riding (2G): stacked pieces move/rise with the piece beneath them ------
+  // All assertions read STORE state (positions/bases) — never canvas pixels. The
+  // gizmo drag is driven through the same begin/set/commit transient it fires.
+
+  test("riding: moving a tower moves the flag on its top; one undo reverses both", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+
+    // A tower on the ground, and a flag seated exactly on its top (a rider).
+    const ids = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const towerId = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      const t = api.getPieces().find((p: any) => p.id === towerId);
+      const flagId = api
+        .getState()
+        .addFlag({ position: { x: 0, y: 0 }, base: t.base + t.height });
+      return { towerId, flagId };
+    });
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const flagBase0 = await page.evaluate(
+      (id) => (window as any).__CASTLE_E2E__.getPieces().find((p: any) => p.id === id).base,
+      ids.flagId,
+    );
+
+    // Drive the gizmo move: shift the tower by (+10, +6).
+    await page.evaluate((id) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setPiecePositionTransient(id, { x: 10, y: 6 });
+      api.getState().commitTransient();
+    }, ids.towerId);
+
+    // The flag rode the same delta; its base is unchanged (horizontal move).
+    let flag = (await pieces(page)).find((p) => p.id === ids.flagId);
+    expect(flag.position).toEqual({ x: 10, y: 6 });
+    expect(flag.base).toBeCloseTo(flagBase0, 6);
+
+    // One undo reverses BOTH the tower and its rider.
+    await page.evaluate(() => (window as any).__CASTLE_E2E__.getState().undo());
+    const tower = (await pieces(page)).find((p) => p.id === ids.towerId);
+    flag = (await pieces(page)).find((p) => p.id === ids.flagId);
+    expect(tower.position).toEqual({ x: 0, y: 0 });
+    expect(flag.position).toEqual({ x: 0, y: 0 });
+
+    expect(errors).toEqual([]);
+  });
+
+  test("riding: a 3-high stack all rides when the bottom piece moves", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    const ids = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const bottomId = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      const b = api.getPieces().find((p: any) => p.id === bottomId);
+      const midId = api
+        .getState()
+        .addTower({ position: { x: 0, y: 0 }, base: b.base + b.height });
+      const m = api.getPieces().find((p: any) => p.id === midId);
+      const topId = api
+        .getState()
+        .addFlag({ position: { x: 0, y: 0 }, base: m.base + m.height });
+      return { bottomId, midId, topId };
+    });
+    await expect.poll(() => pieceCount(page)).toBe(3);
+
+    await page.evaluate((id) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setPiecePositionTransient(id, { x: -4, y: 8 });
+      api.getState().commitTransient();
+    }, ids.bottomId);
+
+    const ps = await pieces(page);
+    for (const id of [ids.bottomId, ids.midId, ids.topId]) {
+      expect(ps.find((p) => p.id === id).position).toEqual({ x: -4, y: 8 });
+    }
+  });
+
+  test("riding: raising a tower's height raises the flag on its top", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    const ids = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const towerId = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      const t = api.getPieces().find((p: any) => p.id === towerId);
+      const flagId = api
+        .getState()
+        .addFlag({ position: { x: 0, y: 0 }, base: t.base + t.height });
+      return { towerId, flagId, height: t.height };
+    });
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    const flagBase0 = await page.evaluate(
+      (id) => (window as any).__CASTLE_E2E__.getPieces().find((p: any) => p.id === id).base,
+      ids.flagId,
+    );
+
+    // Raise the tower's height by 4 through the same store action the panel uses.
+    await page.evaluate(
+      ({ towerId, height }) =>
+        (window as any).__CASTLE_E2E__.getState().updatePiece(towerId, {
+          height: height + 4,
+        }),
+      ids,
+    );
+
+    const flag = (await pieces(page)).find((p) => p.id === ids.flagId);
+    expect(flag.base).toBeCloseTo(flagBase0 + 4, 6); // rose with the top
+
+    // A material-only edit moves nothing vertically.
+    await page.evaluate(
+      (towerId) =>
+        (window as any).__CASTLE_E2E__.getState().updatePiece(towerId, {
+          material: { kind: "solid", color: "#abcabc" },
+        }),
+      ids.towerId,
+    );
+    const flag2 = (await pieces(page)).find((p) => p.id === ids.flagId);
+    expect(flag2.base).toBeCloseTo(flagBase0 + 4, 6); // unchanged by a non-height edit
+  });
+
+  test("riding: a piece near but NOT on top does not ride", async ({ page }) => {
+    await openApp(page);
+
+    const ids = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const towerId = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      // A flag on the GROUND beside the tower (not on its top).
+      const flagId = api.getState().addFlag({ position: { x: 3, y: 0 }, base: 0 });
+      return { towerId, flagId };
+    });
+    await expect.poll(() => pieceCount(page)).toBe(2);
+
+    await page.evaluate((id) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setPiecePositionTransient(id, { x: 20, y: 20 });
+      api.getState().commitTransient();
+    }, ids.towerId);
+
+    const flag = (await pieces(page)).find((p) => p.id === ids.flagId);
+    expect(flag.position).toEqual({ x: 3, y: 0 }); // stayed put — not a rider
+  });
 });

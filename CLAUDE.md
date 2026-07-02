@@ -107,11 +107,64 @@ over). Every piece is a flat top-level object that carries its own stored vertic
 - "Stacking" means **a piece sits on top of another piece** (a tower on a
   gatehouse), achieved by face-attach snapping the new piece's base to the lower
   piece's top. The base is then **stored explicitly** on the piece.
-- **No parent/child auto-riding in phase 1.** Moving/raising the lower piece does
-  NOT auto-move the piece resting on it; the upper piece keeps its stored base.
-  (Auto-riding parent/child is a deliberate **later** possibility — and would carry
-  the prior project's "be conservative with anything that auto-mutates the user's
-  work" caution. Not now.)
+- **Riding is implemented (phase 2G), geometry-derived — NO stored links.** Moving
+  or raising a lower piece now carries the pieces resting on it along with it. The
+  riders are **computed FRESH from geometry** at move/resize time (see "Riding
+  (phase 2G)" below) — there is **no `parent`/`child` field, no relationship graph,
+  no schema change, and no reconciliation**. "Resting on" reuses the SAME support
+  rule face-attach uses (`resolveSupportAt`), so the rider set can never drift from
+  seating. A move applies one horizontal delta to the whole transitive rider set; a
+  top-height/base raise applies the same vertical delta to it — each as **one undo
+  step**. It is a geometry heuristic ("what is on top right now?"), and a wrong
+  guess is always **undoable**.
+
+## Riding (phase 2G)
+
+Stacked pieces **ride** the piece beneath them: moving or raising a lower piece
+carries everything resting on it. This is deliberately implemented **WITHOUT
+stored parent/child links** — riders are **computed fresh from geometry** at
+move/resize time (the "single source of truth from geometry; don't persist
+redundant relationships" instinct). **No schema change, no relationship graph, no
+reconciliation.** It is a heuristic ("what is on top right now?") and a wrong guess
+is always **undoable**.
+
+- **The pure helper** (`src/geometry/riders.ts`). `ridersOf(piece, allPieces)`
+  returns the DIRECT riders; `allRidersOf(piece, allPieces)` returns the TRANSITIVE
+  set (riders, their riders, …), each piece **once**, **cycle-safe** (a visited-set
+  so a degenerate mutual-rider configuration terminates instead of looping). Both
+  are pure + unit-tested. A candidate rides `piece` when it is "resting on" it, and
+  **"resting on" reuses the SAME support geometry** face-attach/move already use —
+  `resolveSupportAt(candidate.position, [piece])` must return `piece` as the
+  surface AND the candidate's stored `base` must match that top (within a tiny
+  tolerance). There is **NO second notion of "resting on"**.
+  - Because the test flows entirely through `resolveSupportAt`, the surface
+    exclusions come for free: a **moat / ramp / gate / flag is not a support
+    surface**, so **nothing rides one** (in particular *nothing tries to ride a
+    moat*). But a **flag resting on a tower top IS a valid rider** — the exclusion
+    is about being a *support surface*, never about being a *rider*.
+- **Ride on move** (`setPiecePositionTransient`). The rider set is computed **once
+  from the pre-move geometry** (off the pending-interaction snapshot, so repeated
+  mid-drag calls stay idempotent — each rider moves exactly once by the TOTAL
+  delta, never re-evaluated frame-to-frame). The moved piece and every rider
+  translate by the same **horizontal** delta (a two-point wall/segment rider shifts
+  BOTH endpoints); riders **RIDE, they do not re-seat** — their base is untouched
+  by a horizontal move. History records **one commit on mouse-up** (the standard
+  transient rule). It **composes with** the existing machinery: the moved piece
+  still resolves its own base through the mode-aware `resolveSupportAt`
+  (Keep-on-ground / face-attach), now **excluding its riders** so it can't
+  accidentally climb onto something riding it; the moat stays inherently
+  ground-only.
+- **Ride on resize/raise** (`updatePiece`). An edit that raises the piece's **flat
+  top** (its `height`) OR its **base** moves the surface riders sit on; the riders
+  (captured from the **pre-edit** geometry) shift by the same **vertical** delta
+  (`Δbase + Δheight`), as **one undo step with the edit**. A **horizontal-only**
+  param change (material, radius, width/depth, rotation) leaves the top unchanged →
+  delta 0 → **riders are untouched**. If a radius/width shrink drops a rider off the
+  new (smaller) top, we **do not chase it** (leave it; the user can move it — "don't
+  auto-mutate surprisingly").
+- **Out of scope for 2G:** stored parent/child relationships or any persisted
+  stacking graph; reconciliation; riders re-seating their own support during a ride
+  (they translate rigidly); auto-roofs; detach/re-parent UI.
 
 ## Data model (schema v2)
 
@@ -351,8 +404,11 @@ builder is unit-tested.
   layout-measuring effect). Any per-render `useLayoutEffect` must be **idempotent**
   (round sub-pixel measurements, cache, use a fit tolerance).
 - **Be conservative with anything that auto-mutates the user's work.**
-  Generate-once + explicit beats clever-auto that surprises people. (Why
-  parent/child auto-riding is deferred.)
+  Generate-once + explicit beats clever-auto that surprises people. Riding
+  (phase 2G) auto-moves riders, but stays within this caution: it is
+  **geometry-derived** (no persisted relationship to drift or reconcile), acts only
+  on a direct user move/resize, and every ride is **one undoable step** — a wrong
+  guess costs one Ctrl+Z.
 
 ## Verification (do this every session)
 
@@ -614,8 +670,13 @@ pieces under `src/geometry/` + `src/components/preview/`, consuming `flagTexture
   ground-height seam so it's additive later.
 - **No 2D plan editor.** Building happens in 3D.
 - **No storey/level system.** Stacking is explicit vertical placement.
-- **No parent/child auto-riding, no wall↔tower attachment** in phase 1 (both
-  deferred, deliberately).
+- **Riding is BUILT (phase 2G) but geometry-derived only — no wall↔tower
+  attachment.** Moving/raising a piece carries its riders (computed fresh from
+  geometry via `resolveSupportAt`; see "Riding (phase 2G)"). Still **no stored
+  parent/child links, no relationship graph, no reconciliation**, and **no
+  wall↔tower attachment** (walls still just overlap towers). Riders re-seating
+  their own support during a ride, auto-roofs, and detach/re-parent UI are all
+  **out of scope**.
 - No real lighting/illumination design; no measurements/annotations beyond simple
   piece dimensions in the panel.
 - Accessibility basics only: focus styles, button labels, no exotic ARIA work.
@@ -874,6 +935,13 @@ generate-once-and-explicit-beats-clever-auto lesson.
   **design chooser** (use-last / library / design-new) backed by a persisted
   `lastFlagDesign`, and **editor pole/cloth dimension** controls (piece props, not
   saved to the library) — see "Flags (phase 2F)".
-- **2+:** raised terrain (tiers / motte via `groundHeightAt`), parent/child
-  auto-riding, wall↔tower attachment, more pieces, more freedom. Do not start any
-  of this without instruction.
+- **2G (riding — DONE):** stacked pieces move/rise with the piece beneath them,
+  **geometry-derived** (no stored links). A pure `ridersOf`/`allRidersOf`
+  (`src/geometry/riders.ts`, reusing `resolveSupportAt`) feeds the move commit
+  (one horizontal delta to the whole transitive set) and the resize/raise commit
+  (the same vertical delta on a top-height/base change) — each ONE undo step. See
+  "Riding (phase 2G)".
+- **2+:** raised terrain (tiers / motte via `groundHeightAt`), **persisted**
+  parent/child relationships (2G already does riding without them), wall↔tower
+  attachment, more pieces, more freedom. Do not start any of this without
+  instruction.
