@@ -6,10 +6,12 @@ import type { Ramp } from "../../store/schema";
 import { useStore } from "../../store/store";
 import { groundHeightAt } from "../../geometry/ground";
 import { buildRamp } from "../../geometry/rampBuilder";
+import { rampRoof } from "../../geometry/roofs";
 import { snapHorizontal } from "../../geometry/grid";
 import { PATTERN_TILE_METERS } from "../../materials/patterns";
 import { useThreeMaterial } from "../../materials/threeMaterial";
 import { isCleanClick } from "./interaction";
+import { RoofParts } from "./RoofParts";
 
 function deg2rad(d: number): number {
   return (d * Math.PI) / 180;
@@ -62,6 +64,11 @@ export function RampMesh({ piece }: RampMeshProps) {
   // The pure builder is the single source of the ramp's geometry parts.
   const parts = buildRamp(piece);
 
+  // Roof (schema v3): a posted cover parallel to the incline, with its own
+  // material. Empty when unroofed.
+  const roof = rampRoof(piece);
+  const roofMaterial = useThreeMaterial(piece.roofMaterial, { repeat: [2, 2] }, { selected, hovered });
+
   const handleOver = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== "select") return;
     e.stopPropagation();
@@ -111,6 +118,7 @@ export function RampMesh({ piece }: RampMeshProps) {
               <boxGeometry args={[part.size.x, part.size.y, part.size.z]} />
             </mesh>
           ))}
+          <RoofParts parts={roof} material={roofMaterial} />
         </group>
       </group>
 
