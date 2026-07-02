@@ -20,6 +20,10 @@ function tower(overrides: Partial<Tower> = {}): Tower {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
+    raisedOnPosts: false,
     ...overrides,
   };
 }

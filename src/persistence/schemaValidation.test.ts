@@ -6,9 +6,10 @@ import {
 } from "./schemaValidation";
 import { createEmptyDesign, type Design } from "../store/schema";
 
+// A current-schema (v3) design fixture — a tower carrying its roof fields.
 function validDesign(): Design {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     name: "Test Castle",
     pieces: [
       {
@@ -23,15 +24,19 @@ function validDesign(): Design {
         crenellated: false,
         merlonSize: 0.6,
         material: { kind: "solid", color: "#999" },
+        roofed: false,
+        roofPitch: 3,
+        roofMaterial: { kind: "solid", color: "#7c3b2a" },
+        raisedOnPosts: false,
       },
     ],
   };
 }
 
 describe("validateDesign", () => {
-  it("accepts a valid v2 design and round-trips pieces", () => {
+  it("accepts a valid v3 design and round-trips pieces", () => {
     const design = validateDesign(validDesign());
-    expect(design.schemaVersion).toBe(2);
+    expect(design.schemaVersion).toBe(3);
     expect(design.pieces).toHaveLength(1);
     expect(design.pieces[0].kind).toBe("tower");
   });
@@ -41,7 +46,7 @@ describe("validateDesign", () => {
   });
 
   it("refuses a newer (future) schema version", () => {
-    const future = { ...validDesign(), schemaVersion: 3 };
+    const future = { ...validDesign(), schemaVersion: 4 };
     try {
       validateDesign(future);
       throw new Error("should have thrown");
@@ -145,12 +150,13 @@ function v1Fixture() {
   };
 }
 
-describe("schema migration (v1 → v2)", () => {
-  it("loads a v1 design as v2 with its pieces untouched", () => {
+describe("schema migration (v1 → current)", () => {
+  it("loads a v1 design at the current version with its original fields preserved", () => {
     const before = v1Fixture();
     const design = validateDesign(before);
-    // The only change is the version bump; pieces carry over verbatim.
-    expect(design.schemaVersion).toBe(2);
+    // The version climbs to current; original piece fields carry over verbatim
+    // (roof fields are additively layered on the host tower by the v2→v3 step).
+    expect(design.schemaVersion).toBe(3);
     expect(design.pieces).toHaveLength(2);
     expect(design.pieces.map((p) => p.kind)).toEqual(["tower", "gate"]);
     expect(design.pieces[0]).toMatchObject(before.pieces[0]);
@@ -159,8 +165,75 @@ describe("schema migration (v1 → v2)", () => {
 
   it("migrates a v1 design with no pieces", () => {
     const design = validateDesign({ schemaVersion: 1, name: "Empty", pieces: [] });
-    expect(design.schemaVersion).toBe(2);
+    expect(design.schemaVersion).toBe(3);
     expect(design.pieces).toEqual([]);
+  });
+});
+
+// A v2 design fixture (pre-2H): host pieces have NO roof fields yet.
+function v2Fixture() {
+  return {
+    schemaVersion: 2,
+    name: "Pre-roof Castle",
+    pieces: [
+      {
+        id: "t1",
+        kind: "tower",
+        position: { x: 0, y: 0 },
+        base: 0,
+        rotation: 0,
+        profile: "round",
+        radius: 2,
+        height: 8,
+        crenellated: false,
+        merlonSize: 0.6,
+        material: { kind: "solid", color: "#999" },
+      },
+      {
+        id: "w1",
+        kind: "wallRun",
+        position: { x: 0, y: 0 },
+        end: { x: 4, y: 0 },
+        base: 0,
+        rotation: 0,
+        height: 4,
+        thickness: 0.6,
+        crenellated: false,
+        merlonSize: 0.6,
+        material: { kind: "solid", color: "#999" },
+      },
+      {
+        id: "g1",
+        kind: "gate", // NOT a roof host — must stay untouched
+        position: { x: 5, y: 0 },
+        base: 0,
+        rotation: 0,
+        width: 2.4,
+        height: 3.2,
+        material: { kind: "solid", color: "#6b4a2b" },
+      },
+    ],
+  };
+}
+
+describe("schema migration (v2 → v3): roofs default off", () => {
+  it("gives existing host pieces roofed:false (+ roof defaults); non-hosts untouched", () => {
+    const design = validateDesign(v2Fixture());
+    expect(design.schemaVersion).toBe(3);
+
+    const tower = design.pieces.find((p) => p.id === "t1") as never as Record<string, unknown>;
+    expect(tower.roofed).toBe(false);
+    expect(typeof tower.roofPitch).toBe("number");
+    expect(tower.roofMaterial).toBeTruthy();
+    expect(tower.raisedOnPosts).toBe(false); // tower gets the posts toggle
+
+    const wall = design.pieces.find((p) => p.id === "w1") as never as Record<string, unknown>;
+    expect(wall.roofed).toBe(false);
+    expect(wall.roofPitch).toBeDefined();
+    expect("raisedOnPosts" in wall).toBe(false); // wall run is always posted (no toggle)
+
+    const gate = design.pieces.find((p) => p.id === "g1") as never as Record<string, unknown>;
+    expect("roofed" in gate).toBe(false); // gate is never roofed
   });
 });
 

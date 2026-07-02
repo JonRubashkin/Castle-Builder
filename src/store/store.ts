@@ -14,6 +14,8 @@ import {
   DEFAULT_MOAT_OUTER_RADIUS,
   DEFAULT_MOAT_WIDTH,
   DEFAULT_RAMP_WIDTH,
+  DEFAULT_ROOF_MATERIAL,
+  DEFAULT_ROOF_PITCH,
   DEFAULT_STONE_MATERIAL,
   DEFAULT_TIMBER_MATERIAL,
   DEFAULT_TOWER_HEIGHT,
@@ -348,6 +350,11 @@ export const useStore = create<StoreState>((set, get) => {
         crenellated: false,
         merlonSize: DEFAULT_MERLON_SIZE,
         material: DEFAULT_STONE_MATERIAL,
+        // Roof (schema v3): off by default; params stored so a later toggle-on works.
+        roofed: false,
+        roofPitch: DEFAULT_ROOF_PITCH,
+        roofMaterial: DEFAULT_ROOF_MATERIAL,
+        raisedOnPosts: false,
       };
       commit((design) => {
         design.pieces.push(tower);
@@ -370,6 +377,10 @@ export const useStore = create<StoreState>((set, get) => {
         crenellated: false,
         merlonSize: DEFAULT_MERLON_SIZE,
         material: DEFAULT_STONE_MATERIAL,
+        roofed: false,
+        roofPitch: DEFAULT_ROOF_PITCH,
+        roofMaterial: DEFAULT_ROOF_MATERIAL,
+        raisedOnPosts: false,
       };
       commit((design) => {
         design.pieces.push(gatehouse);
@@ -392,6 +403,10 @@ export const useStore = create<StoreState>((set, get) => {
         crenellated: false,
         merlonSize: DEFAULT_MERLON_SIZE,
         material: DEFAULT_STONE_MATERIAL,
+        // Wall-walk cover (schema v3): off by default; always posted when on.
+        roofed: false,
+        roofPitch: DEFAULT_ROOF_PITCH,
+        roofMaterial: DEFAULT_ROOF_MATERIAL,
       };
       commit((design) => {
         design.pieces.push(wall);
@@ -452,6 +467,10 @@ export const useStore = create<StoreState>((set, get) => {
         width: DEFAULT_RAMP_WIDTH,
         style: "ramp",
         material: DEFAULT_STONE_MATERIAL,
+        // Incline cover (schema v3): off by default; always posted when on.
+        roofed: false,
+        roofPitch: DEFAULT_ROOF_PITCH,
+        roofMaterial: DEFAULT_ROOF_MATERIAL,
       };
       commit((design) => {
         design.pieces.push(ramp);

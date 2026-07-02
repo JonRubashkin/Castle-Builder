@@ -23,6 +23,9 @@ function wall(over: Partial<WallRun> = {}): WallRun {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
     ...over,
   };
 }

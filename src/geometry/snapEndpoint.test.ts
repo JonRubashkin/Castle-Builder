@@ -15,6 +15,10 @@ function tower(overrides: Partial<Tower> = {}): Tower {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
+    raisedOnPosts: false,
     ...overrides,
   };
 }
@@ -32,6 +36,10 @@ function gatehouse(overrides: Partial<Gatehouse> = {}): Gatehouse {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
+    raisedOnPosts: false,
     ...overrides,
   };
 }
@@ -49,6 +57,9 @@ function wall(overrides: Partial<WallRun> = {}): WallRun {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
     ...overrides,
   };
 }

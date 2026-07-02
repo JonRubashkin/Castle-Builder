@@ -21,6 +21,9 @@ function wall(overrides: Partial<WallRun> = {}): WallRun {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
     ...overrides,
   };
 }
@@ -38,6 +41,10 @@ function gatehouse(overrides: Partial<Gatehouse> = {}): Gatehouse {
     crenellated: false,
     merlonSize: 0.6,
     material: { kind: "solid", color: "#999" },
+    roofed: false,
+    roofPitch: 3,
+    roofMaterial: { kind: "solid", color: "#7c3b2a" },
+    raisedOnPosts: false,
     ...overrides,
   };
 }
@@ -61,6 +68,10 @@ describe("isFlagAlongHost — the supported host set", () => {
       crenellated: false,
       merlonSize: 0.6,
       material: { kind: "solid", color: "#999" },
+      roofed: false,
+      roofPitch: 3,
+      roofMaterial: { kind: "solid", color: "#7c3b2a" },
+      raisedOnPosts: false,
     };
     const ramp: Ramp = {
       id: "r",
@@ -73,6 +84,9 @@ describe("isFlagAlongHost — the supported host set", () => {
       width: 2,
       style: "ramp",
       material: { kind: "solid", color: "#999" },
+      roofed: false,
+      roofPitch: 3,
+      roofMaterial: { kind: "solid", color: "#7c3b2a" },
     };
     const moat: Moat = {
       id: "m",
