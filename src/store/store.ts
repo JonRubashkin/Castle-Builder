@@ -47,8 +47,10 @@ import { groundHeightAt } from "../geometry/ground";
 import { snapHorizontalVec2 } from "../geometry/grid";
 import {
   loadFlagLibrary,
+  loadLastFlagDesign,
   loadPlacementMode,
   saveFlagLibrary,
+  saveLastFlagDesign,
   savePlacementMode,
 } from "../persistence/storage";
 
@@ -107,6 +109,11 @@ export interface StoreState {
   // Export JSON, NOT in undo history, and untouched by newDesign (New Castle).
   // Hydrated from its own localStorage slot on boot; every mutation persists it.
   flagLibrary: FlagLibrary;
+  // The most recent FlagDesign the user applied/edited (2Fe.1) — a persisted UI
+  // PREFERENCE that backs the "Use last design" option of the "Add flags along"
+  // chooser. NOT part of the castle Design, NOT in its Export JSON, NOT in undo
+  // history, and untouched by newDesign. null until the user has edited a design.
+  lastFlagDesign: FlagDesign | null;
   history: History;
   // A monotonic boot counter bumped by newDesign(). The editor tree is keyed on
   // it (<Editor key={bootNonce} />) so a "New Castle" reset fully REMOUNTS a clean
@@ -176,7 +183,19 @@ export interface StoreState {
   // only calls this on Apply, so an entire editing session (many layer edits + a
   // charge drag) collapses into a single history entry — the project's
   // slider-coalescing spirit — while Cancel/Esc simply discard the working copy.
-  updateFlagDesign: (id: string, design: FlagDesign) => void;
+  // The `dims` param (2Fe.1) lets the editor's Apply commit the flag PIECE's
+  // pole/cloth dimensions together with the design as ONE undoable step (the same
+  // coalesced entry). poleHeight/clothWidth are properties of the Flag piece, NOT
+  // of FlagDesign — they are never saved to the library. Applying also updates the
+  // persisted `lastFlagDesign` pref.
+  updateFlagDesign: (
+    id: string,
+    design: FlagDesign,
+    dims?: { poleHeight?: number; clothWidth?: number },
+  ) => void;
+  // Set the persisted "last flag design" pref directly (used when a design is
+  // authored via the "Design new" chooser path, which never touches a placed flag).
+  setLastFlagDesign: (design: FlagDesign) => void;
   deletePiece: (id: string) => void;
 
   // --- saved-flags library (2Fd) — separate from the Design, not undoable ---
@@ -255,6 +274,7 @@ export const useStore = create<StoreState>((set, get) => {
     selectedId: null,
     placeOnTopArmed: false,
     flagLibrary: loadFlagLibrary(), // hydrate the saved-flags palette on boot
+    lastFlagDesign: loadLastFlagDesign(), // hydrate the last-used design pref on boot
     history: { past: [], future: [] },
     pendingSnapshot: null,
     bootNonce: 0,
@@ -495,7 +515,8 @@ export const useStore = create<StoreState>((set, get) => {
       // Each generated flag EMBEDS its own copy of the design (the embed model),
       // so they are indistinguishable from hand-placed flags — independently
       // selectable / movable / editable / deletable afterward. Generate-once: they
-      // carry no link back to the host.
+      // carry no LIVE link back to the host. They DO carry a provenance MARKER
+      // (autoFlagHostId) so a re-run can find and replace exactly this host's set.
       const source = chosenDesign ?? createDefaultFlagDesign();
       const flags: Flag[] = placements.map((pl) => ({
         id: nextId(),
@@ -506,24 +527,47 @@ export const useStore = create<StoreState>((set, get) => {
         design: clone(source),
         poleHeight: DEFAULT_FLAG_POLE_HEIGHT,
         clothWidth: DEFAULT_FLAG_CLOTH_WIDTH,
+        autoFlagHostId: hostId,
       }));
       const ids = flags.map((f) => f.id);
-      // ONE undoable step: all the flags appear (and undo removes them) together.
+      // ONE undoable step that RE-RUN-REPLACES: first remove every flag currently
+      // tagged to this host (a WHOLESALE replace — including any the user hand-moved
+      // after a prior generation; this is explicit and user-triggered, so the user
+      // simply doesn't re-run if they've tweaked flags they want to keep), then push
+      // the fresh batch. Undo reverses the whole replace (removals + additions).
       commit((design) => {
+        design.pieces = design.pieces.filter(
+          (p) => !(p.kind === "flag" && p.autoFlagHostId === hostId),
+        );
         design.pieces.push(...flags);
         return design;
       });
       return ids;
     },
 
-    updateFlagDesign: (id, flagDesign) => {
+    updateFlagDesign: (id, flagDesign, dims) => {
       commit((design) => {
         const piece = design.pieces.find((p) => p.id === id);
         // Only flags carry an embedded design; clone so the working copy the
         // editor keeps editing can't leak into committed (history) state.
-        if (piece && piece.kind === "flag") piece.design = clone(flagDesign);
+        if (piece && piece.kind === "flag") {
+          piece.design = clone(flagDesign);
+          // The pole/cloth dimensions are PIECE props (not design), committed in
+          // the SAME undoable step so the editor's Apply is one coalesced entry.
+          if (dims?.poleHeight !== undefined) piece.poleHeight = dims.poleHeight;
+          if (dims?.clothWidth !== undefined) piece.clothWidth = dims.clothWidth;
+        }
         return design;
       });
+      // Remember the design as the "last used" pref (backs the chooser's use-last).
+      // Persisted; NOT in undo history (a separate pref, like Keep-on-ground).
+      saveLastFlagDesign(flagDesign);
+      set({ lastFlagDesign: clone(flagDesign) });
+    },
+
+    setLastFlagDesign: (flagDesign) => {
+      saveLastFlagDesign(flagDesign);
+      set({ lastFlagDesign: clone(flagDesign) });
     },
 
     // --- saved-flags library (separate store; persisted; not undoable) -------

@@ -13,6 +13,7 @@ import type {
   Tower,
   WallRun,
 } from "../../store/schema";
+import type { FlagDesign } from "../../flags/types";
 import { PATTERN_IDS } from "../../materials/patterns";
 import { snapRotation } from "../../geometry/grid";
 import { DEFAULT_FLAG_ALONG_SPACING } from "../../geometry/flagAlong";
@@ -205,24 +206,35 @@ function PlaceOnTopButton() {
 /**
  * The "Add flags along" action, shown on HOST piece panels (a wall run / a
  * gatehouse). Analogous to the crenellations toggle, but it GENERATES pieces
- * rather than being a per-piece render parameter: clicking it creates real,
- * independent Flag pieces evenly spaced along the host's top edge, as ONE undoable
- * step (see the store's addFlagsAlong / geometry's flagPositionsAlong).
+ * rather than being a per-piece render parameter: it creates real, independent
+ * Flag pieces evenly spaced along the host's top edge, as ONE undoable step (see
+ * the store's addFlagsAlong / geometry's flagPositionsAlong).
  *
- * GENERATE-ONCE: the flags become ordinary independent pieces immediately — they
- * do NOT re-space or move if the host is later resized/moved. The design select
- * chooses which design each flag embeds: the plain default, or a copy of a saved
- * library design (2Fd).
+ * RE-RUN-REPLACES (2Fe.1): each generated flag is tagged to this host; clicking
+ * "Add flags along" again first removes every flag tagged to this host, then lays
+ * a fresh set — so after resizing a wall, one click re-spaces its flags (a
+ * WHOLESALE replace, including any the user hand-moved). Still GENERATE-ONCE
+ * between clicks: no live follow of host edits.
+ *
+ * Clicking the button opens a lightweight CHOOSER for which design each flag
+ * embeds: "Use last design" (the last-edited design, or a sensible default),
+ * "Pick from library" (a saved 2Fd design), or "Design new" (author one in the
+ * flag editor, then place with it). The chosen design is COPIED into each flag.
  */
 function AddFlagsAlongControl({ hostId }: { hostId: string }) {
   const addFlagsAlong = useStore((s) => s.addFlagsAlong);
   const flagLibrary = useStore((s) => s.flagLibrary);
+  const lastFlagDesign = useStore((s) => s.lastFlagDesign);
   const [spacing, setSpacing] = useState(DEFAULT_FLAG_ALONG_SPACING);
-  const [entryId, setEntryId] = useState<string>(""); // "" = the default design
+  // The chooser flow: closed → open (the 3 options) → the library picker, or the
+  // full editor for "Design new".
+  const [mode, setMode] = useState<"idle" | "choosing" | "library" | "designing">(
+    "idle",
+  );
 
-  const onAdd = () => {
-    const entry = flagLibrary.find((e) => e.id === entryId);
-    addFlagsAlong(hostId, { spacing, design: entry ? entry.design : undefined });
+  const place = (design?: FlagDesign) => {
+    addFlagsAlong(hostId, { spacing, design });
+    setMode("idle");
   };
 
   return (
@@ -235,29 +247,84 @@ function AddFlagsAlongControl({ hostId }: { hostId: string }) {
         step={0.5}
         onCommit={setSpacing}
       />
-      <label className="panel__field">
-        <span>Flag design</span>
-        <select
-          aria-label="Flag design"
-          value={entryId}
-          onChange={(e) => setEntryId(e.target.value)}
+
+      {mode === "idle" && (
+        <button
+          type="button"
+          className="panel__flags-along-btn"
+          data-action="add-flags-along"
+          onClick={() => setMode("choosing")}
         >
-          <option value="">Default</option>
-          {flagLibrary.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        type="button"
-        className="panel__flags-along-btn"
-        data-action="add-flags-along"
-        onClick={onAdd}
-      >
-        Add flags along
-      </button>
+          Add flags along
+        </button>
+      )}
+
+      {mode === "choosing" && (
+        <div className="panel__flags-chooser" role="group" aria-label="Flag design">
+          <span className="panel__hint">Which design for these flags?</span>
+          <button
+            type="button"
+            data-action="flags-along-use-last"
+            onClick={() => place(lastFlagDesign ?? undefined)}
+          >
+            Use last design
+          </button>
+          <button
+            type="button"
+            data-action="flags-along-pick-library"
+            onClick={() => setMode("library")}
+          >
+            Pick from library
+          </button>
+          <button
+            type="button"
+            data-action="flags-along-design-new"
+            onClick={() => setMode("designing")}
+          >
+            Design new
+          </button>
+          <button type="button" onClick={() => setMode("idle")}>
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {mode === "library" && (
+        <div className="panel__flags-library" aria-label="Pick a saved flag">
+          {flagLibrary.length === 0 ? (
+            <p className="panel__hint">
+              No saved flags yet — save one from the flag editor first.
+            </p>
+          ) : (
+            <ul className="panel__flags-library-list">
+              {flagLibrary.map((e) => (
+                <li key={e.id}>
+                  <button
+                    type="button"
+                    data-action="flags-along-library-entry"
+                    data-entry-id={e.id}
+                    onClick={() => place(e.design)}
+                  >
+                    {e.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" onClick={() => setMode("choosing")}>
+            Back
+          </button>
+        </div>
+      )}
+
+      {mode === "designing" && (
+        <FlagEditor
+          authorMode
+          initialDesign={lastFlagDesign ?? undefined}
+          onAuthor={(design) => place(design)}
+          onClose={() => setMode("idle")}
+        />
+      )}
     </div>
   );
 }

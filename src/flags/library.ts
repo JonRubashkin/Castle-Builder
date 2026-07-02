@@ -123,7 +123,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function isValidFlagDesign(value: unknown): value is FlagDesign {
+export function isValidFlagDesign(value: unknown): value is FlagDesign {
   if (!isPlainObject(value)) return false;
   if (typeof value.aspect !== "number") return false;
   if (!Array.isArray(value.layers)) return false;

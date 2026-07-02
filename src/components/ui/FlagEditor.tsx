@@ -8,6 +8,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Flag } from "../../store/schema";
+import {
+  createDefaultFlagDesign,
+  DEFAULT_FLAG_CLOTH_WIDTH,
+  DEFAULT_FLAG_POLE_HEIGHT,
+} from "../../store/schema";
 import { useStore } from "../../store/store";
 import { renderFlag } from "../../flags/renderFlag";
 import { chargeTransform } from "../../flags/layout";
@@ -338,13 +343,46 @@ function layerSummary(layer: FlagLayer): string {
 
 // --- the modal ---------------------------------------------------------------
 
-export function FlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void }) {
-  const updateFlagDesign = useStore((s) => s.updateFlagDesign);
+// The editor works in two modes, sharing all the layer/preview/library machinery:
+//   • "flag"   — edit a PLACED flag's embedded design + its pole/cloth dimensions;
+//                Apply commits everything as one undoable step (updateFlagDesign).
+//   • "author" — author a standalone design (the "Design new" chooser path for
+//                "Add flags along"); Apply hands the design back via onAuthor. No
+//                pole/cloth controls (those are per-PIECE props, and auto-placed
+//                flags take the defaults) — but the design is still remembered as
+//                the last-used pref so "Use last" reflects it.
+export type FlagEditorProps =
+  | { flag: Flag; onClose: () => void }
+  | {
+      authorMode: true;
+      initialDesign?: FlagDesign;
+      onAuthor: (design: FlagDesign) => void;
+      onClose: () => void;
+    };
 
-  // The WORKING COPY — a deep clone of the flag's design, edited entirely in local
+export function FlagEditor(props: FlagEditorProps) {
+  const onClose = props.onClose;
+  const authorMode = "authorMode" in props;
+  const flag = authorMode ? null : props.flag;
+
+  const updateFlagDesign = useStore((s) => s.updateFlagDesign);
+  const setLastFlagDesign = useStore((s) => s.setLastFlagDesign);
+
+  // The WORKING COPY — a deep clone of the source design, edited entirely in local
   // state until Apply. (Cancel/Esc/backdrop simply drop it.)
   const [design, setDesign] = useState<FlagDesign>(() =>
-    structuredClone(flag.design),
+    authorMode
+      ? structuredClone(props.initialDesign ?? createDefaultFlagDesign())
+      : structuredClone(props.flag.design),
+  );
+  // The flag PIECE's pole/cloth dimensions, edited as a working copy alongside the
+  // design (Part 3). These are NOT part of FlagDesign and are never saved to the
+  // library; Cancel discards them, Apply commits them WITH the design in one step.
+  const [poleHeight, setPoleHeight] = useState<number>(
+    flag ? flag.poleHeight : DEFAULT_FLAG_POLE_HEIGHT,
+  );
+  const [clothWidth, setClothWidth] = useState<number>(
+    flag ? flag.clothWidth : DEFAULT_FLAG_CLOTH_WIDTH,
   );
   const [selected, setSelected] = useState<number | null>(null);
   // Which saved-library entry the working design was applied FROM (if any). Set
@@ -357,7 +395,16 @@ export function FlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void 
   const dragRef = useRef<number | null>(null); // index of the charge being dragged
 
   const apply = () => {
-    updateFlagDesign(flag.id, design);
+    if (authorMode) {
+      // Hand the authored design back to the caller (e.g. "Add flags along"), and
+      // remember it as the last-used design so "Use last" reflects it next time.
+      setLastFlagDesign(design);
+      props.onAuthor(design);
+    } else {
+      // Commit the design + the pole/cloth dimensions together as ONE undoable,
+      // coalesced edit (this also updates the last-used-design pref).
+      updateFlagDesign(flag!.id, design, { poleHeight, clothWidth });
+    }
     onClose();
   };
 
@@ -502,7 +549,9 @@ export function FlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void 
         aria-label="Flag design editor"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="modal__title">Edit flag design</h2>
+        <h2 className="modal__title">
+          {authorMode ? "Design a flag" : "Edit flag design"}
+        </h2>
 
         <div className="flag-editor__body">
           {/* Left: the live preview + aspect. The box reserves the MAX height and
@@ -531,6 +580,47 @@ export function FlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void 
             <p className="flag-editor__hint">
               Drag a charge on the preview to reposition it.
             </p>
+
+            {/* Flag PIECE dimensions (Part 3) — pole height + cloth width. These
+                are properties of the placed flag, NOT of the design (they are never
+                saved to the library, and applying a library design leaves them
+                untouched). Shown only when editing a real flag; Cancel discards
+                them, Apply commits them with the design as one step. */}
+            {!authorMode && (
+              <div className="flag-editor__dims" aria-label="Flag dimensions">
+                <span className="flag-editor__dims-head">Flag dimensions</span>
+                <label className="flag-editor__field">
+                  <span>Pole height</span>
+                  <input
+                    type="number"
+                    aria-label="Pole height"
+                    min={0.5}
+                    step={0.5}
+                    value={poleHeight}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v >= 0.5) setPoleHeight(v);
+                    }}
+                  />
+                  <span className="flag-editor__unit">m</span>
+                </label>
+                <label className="flag-editor__field">
+                  <span>Cloth width</span>
+                  <input
+                    type="number"
+                    aria-label="Cloth width"
+                    min={0.3}
+                    step={0.1}
+                    value={clothWidth}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v >= 0.3) setClothWidth(v);
+                    }}
+                  />
+                  <span className="flag-editor__unit">m</span>
+                </label>
+              </div>
+            )}
 
             {/* The saved-flags library: save the working design (overwrite-or-
                 save-as) and apply saved designs (copied into the working copy). */}

@@ -7,7 +7,8 @@
 
 import type { Design } from "../store/schema";
 import type { PlacementMode } from "../geometry/support";
-import { type FlagLibrary, sanitizeLibrary } from "../flags/library";
+import type { FlagDesign } from "../flags/types";
+import { type FlagLibrary, isValidFlagDesign, sanitizeLibrary } from "../flags/library";
 import {
   DesignValidationError,
   parseDesignJSON,
@@ -24,6 +25,12 @@ const PLACEMENT_MODE_KEY = "castle-builder:placement-mode";
 // NOT part of the castle Design and NOT in its Export JSON — so it gets its own
 // slot, untouched by autosave / New Castle (exactly like the placement-mode pref).
 const FLAG_LIBRARY_KEY = "castle-builder:flag-library";
+// The "last flag design" is a persisted UI PREFERENCE (2Fe.1) — the most recent
+// FlagDesign the user applied/edited, used to back the "Use last design" chooser
+// option for "Add flags along". Like the placement-mode pref and the library, it
+// lives in its own slot: NOT part of the castle Design, NOT in its Export JSON,
+// and untouched by New Castle.
+const LAST_FLAG_DESIGN_KEY = "castle-builder:last-flag-design";
 
 function storage(): Storage | null {
   try {
@@ -116,6 +123,35 @@ export function loadFlagLibrary(): FlagLibrary {
   } catch (err) {
     console.warn("Ignoring unreadable flag library:", err);
     return [];
+  }
+}
+
+// --- Last-flag-design preference (persisted, separate from the Design) -------
+
+/** Persist the last-used flag design. Failures are non-fatal (privacy mode). */
+export function saveLastFlagDesign(design: FlagDesign): void {
+  const store = storage();
+  if (!store) return;
+  try {
+    store.setItem(LAST_FLAG_DESIGN_KEY, JSON.stringify(design));
+  } catch (err) {
+    console.warn("Saving last flag design failed:", err);
+  }
+}
+
+/** Load the last-used flag design, or null if none / malformed (a corrupt slot
+ * degrades to null rather than crashing). */
+export function loadLastFlagDesign(): FlagDesign | null {
+  const store = storage();
+  if (!store) return null;
+  const raw = store.getItem(LAST_FLAG_DESIGN_KEY);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isValidFlagDesign(parsed) ? parsed : null;
+  } catch (err) {
+    console.warn("Ignoring unreadable last flag design:", err);
+    return null;
   }
 }
 
