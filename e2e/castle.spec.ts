@@ -1444,8 +1444,10 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     await expect.poll(() => pieceCount(page)).toBe(1);
     await expect(page.getByRole("heading", { name: "Wall" })).toBeVisible();
 
-    // Default spacing (4) over usable length 10 → 3 flags. Click the panel action.
+    // Default spacing (4) over usable length 10 → 3 flags. Open the chooser and
+    // pick "Use last design" (no last design yet → a sensible default).
     await page.getByRole("button", { name: "Add flags along" }).click();
+    await page.getByRole("button", { name: "Use last design" }).click();
     await expect.poll(() => pieceCount(page)).toBe(4); // wall + 3 flags
 
     const flagPieces = (await pieces(page)).filter((p) => p.kind === "flag");
@@ -1481,6 +1483,7 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     await expect(page.getByRole("heading", { name: "Wall" })).toBeVisible();
 
     await page.getByRole("button", { name: "Add flags along" }).click();
+    await page.getByRole("button", { name: "Use last design" }).click();
     await expect.poll(() => pieceCount(page)).toBe(4);
 
     const before = (await pieces(page))
@@ -1515,6 +1518,7 @@ test.describe("Castle Builder — phases 1a–1b", () => {
       api.getState().selectPiece(id);
     });
     await page.getByRole("button", { name: "Add flags along" }).click();
+    await page.getByRole("button", { name: "Use last design" }).click();
     await expect.poll(() => pieceCount(page)).toBe(4);
 
     // Select one generated flag and confirm its panel behaves like any flag.
@@ -1543,6 +1547,196 @@ test.describe("Castle Builder — phases 1a–1b", () => {
     // Delete just this one flag; the others (and the wall) remain.
     await page.getByRole("button", { name: "Delete flag" }).click();
     await expect.poll(() => pieceCount(page)).toBe(3); // wall + 2 flags left
+  });
+
+  // --- 2Fe.1: chooser, re-run-replace, editor dimensions --------------------
+
+  const addWallAndSelect = (page: import("@playwright/test").Page) =>
+    page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const id = api
+        .getState()
+        .addWallRun({ position: { x: -6, y: 0 }, end: { x: 6, y: 0 }, base: 0 });
+      api.getState().selectPiece(id);
+      return id;
+    });
+
+  test('chooser "Design new": author a design, place flags embedding it', async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await openApp(page);
+    await addWallAndSelect(page);
+    await expect(page.getByRole("heading", { name: "Wall" })).toBeVisible();
+
+    // Open the chooser → Design new → the flag editor opens.
+    await page.getByRole("button", { name: "Add flags along" }).click();
+    await page.getByRole("button", { name: "Design new" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Flag design editor" }),
+    ).toBeVisible();
+
+    // Author a distinctive design (add a charge), then Apply → flags are placed.
+    await page.getByRole("button", { name: "Add charge" }).click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
+    await expect(
+      page.getByRole("dialog", { name: "Flag design editor" }),
+    ).toBeHidden();
+
+    const flagPieces = (await pieces(page)).filter((p) => p.kind === "flag");
+    expect(flagPieces.length).toBe(3);
+    // Every generated flag embeds the authored design (a charge present).
+    for (const f of flagPieces) {
+      expect(f.design.layers.some((l: any) => l.kind === "charge")).toBe(true);
+      expect(f.autoFlagHostId).toBeTruthy(); // tagged to the host
+    }
+
+    expect(errors).toEqual([]);
+  });
+
+  test('chooser "Use last design": reuses the last-edited design', async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // Place a flag, edit its design (add a charge), Apply → sets lastFlagDesign.
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    await page.getByRole("button", { name: "Add charge" }).click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
+
+    // Now a wall, and "Add flags along" → Use last design.
+    await addWallAndSelect(page);
+    await expect(page.getByRole("heading", { name: "Wall" })).toBeVisible();
+    await page.getByRole("button", { name: "Add flags along" }).click();
+    await page.getByRole("button", { name: "Use last design" }).click();
+
+    const flagPieces = (await pieces(page)).filter(
+      (p) => p.kind === "flag" && p.autoFlagHostId,
+    );
+    expect(flagPieces.length).toBeGreaterThan(0);
+    // The generated flags reuse the last-edited design (the charge is present).
+    for (const f of flagPieces) {
+      expect(f.design.layers.some((l: any) => l.kind === "charge")).toBe(true);
+    }
+  });
+
+  test('chooser "Pick from library": places flags with a saved design', async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    // Save a distinctive design to the library from a flag editor.
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().selectPiece(api.getPieces()[0].id);
+    });
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    await page.getByRole("button", { name: "Add charge" }).click();
+    await page.getByLabel("Library entry name").fill("Row Banner");
+    await page.getByRole("button", { name: "Save as new" }).click();
+    await page.locator('[data-action="flag-editor-apply"]').click();
+
+    // A wall → Add flags along → Pick from library → the saved entry.
+    await addWallAndSelect(page);
+    await page.getByRole("button", { name: "Add flags along" }).click();
+    await page.getByRole("button", { name: "Pick from library" }).click();
+    await page.locator('[data-action="flags-along-library-entry"]').first().click();
+
+    const flagPieces = (await pieces(page)).filter(
+      (p) => p.kind === "flag" && p.autoFlagHostId,
+    );
+    expect(flagPieces.length).toBeGreaterThan(0);
+    for (const f of flagPieces) {
+      expect(f.design.layers.some((l: any) => l.kind === "charge")).toBe(true);
+    }
+  });
+
+  test("re-run on a resized wall REPLACES the set (one undo restores prior)", async ({
+    page,
+  }) => {
+    await openApp(page);
+    const wallId = await addWallAndSelect(page);
+
+    // First run at the default spacing.
+    await page.getByRole("button", { name: "Add flags along" }).click();
+    await page.getByRole("button", { name: "Use last design" }).click();
+    await expect.poll(() => pieceCount(page)).toBe(4); // wall + 3 flags
+    const firstIds = (await pieces(page))
+      .filter((p) => p.kind === "flag")
+      .map((f) => f.id)
+      .sort();
+
+    // Resize the wall much longer, then re-run → a fresh set REPLACES the old one.
+    await page.evaluate((id) => {
+      (window as any).__CASTLE_E2E__
+        .getState()
+        .setWallEndpoint(id, "end", { x: 30, y: 0 });
+      (window as any).__CASTLE_E2E__.getState().selectPiece(id);
+    }, wallId);
+    await page.getByRole("button", { name: "Add flags along" }).click();
+    await page.getByRole("button", { name: "Use last design" }).click();
+
+    const secondFlags = (await pieces(page)).filter((p) => p.kind === "flag");
+    // A longer wall → more flags, and NONE of the first ids survive.
+    expect(secondFlags.length).toBeGreaterThan(3);
+    const secondIds = secondFlags.map((f) => f.id);
+    for (const id of firstIds) expect(secondIds).not.toContain(id);
+
+    // ONE undo restores exactly the first set (3 flags, the original ids).
+    await page.evaluate(() => (window as any).__CASTLE_E2E__.getState().undo());
+    const restored = (await pieces(page))
+      .filter((p) => p.kind === "flag")
+      .map((f) => f.id)
+      .sort();
+    expect(restored).toEqual(firstIds);
+  });
+
+  test("flag editor: edit pole height → Apply persists it (Cancel discards)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Flag" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+    const flagId = (await pieces(page))[0].id;
+    const pole0 = (await pieces(page))[0].poleHeight;
+    await page.evaluate((id) => {
+      (window as any).__CASTLE_E2E__.getState().selectPiece(id);
+    }, flagId);
+
+    // Open the editor and change the pole height INSIDE the dialog, then Cancel.
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    const dialog = page.getByRole("dialog", { name: "Flag design editor" });
+    await dialog.getByLabel("Pole height").fill("11");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+    // Cancel discarded the dimension change.
+    expect((await pieces(page))[0].poleHeight).toBe(pole0);
+
+    // Re-open, change pole height, and Apply → it persists on the flag piece.
+    await page.getByRole("button", { name: "Edit design…" }).click();
+    await dialog.getByLabel("Pole height").fill("11");
+    await page.locator('[data-action="flag-editor-apply"]').click();
+    await expect(dialog).toBeHidden();
+    await expect
+      .poll(async () => (await pieces(page))[0].poleHeight)
+      .toBe(11);
   });
 
   test("flag editor: changing aspect keeps the preview width fixed (no control reflow)", async ({
