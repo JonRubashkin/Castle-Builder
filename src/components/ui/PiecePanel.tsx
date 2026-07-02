@@ -15,6 +15,7 @@ import type {
 } from "../../store/schema";
 import { PATTERN_IDS } from "../../materials/patterns";
 import { snapRotation } from "../../geometry/grid";
+import { DEFAULT_FLAG_ALONG_SPACING } from "../../geometry/flagAlong";
 
 function NumberField({
   label,
@@ -201,6 +202,66 @@ function PlaceOnTopButton() {
   );
 }
 
+/**
+ * The "Add flags along" action, shown on HOST piece panels (a wall run / a
+ * gatehouse). Analogous to the crenellations toggle, but it GENERATES pieces
+ * rather than being a per-piece render parameter: clicking it creates real,
+ * independent Flag pieces evenly spaced along the host's top edge, as ONE undoable
+ * step (see the store's addFlagsAlong / geometry's flagPositionsAlong).
+ *
+ * GENERATE-ONCE: the flags become ordinary independent pieces immediately — they
+ * do NOT re-space or move if the host is later resized/moved. The design select
+ * chooses which design each flag embeds: the plain default, or a copy of a saved
+ * library design (2Fd).
+ */
+function AddFlagsAlongControl({ hostId }: { hostId: string }) {
+  const addFlagsAlong = useStore((s) => s.addFlagsAlong);
+  const flagLibrary = useStore((s) => s.flagLibrary);
+  const [spacing, setSpacing] = useState(DEFAULT_FLAG_ALONG_SPACING);
+  const [entryId, setEntryId] = useState<string>(""); // "" = the default design
+
+  const onAdd = () => {
+    const entry = flagLibrary.find((e) => e.id === entryId);
+    addFlagsAlong(hostId, { spacing, design: entry ? entry.design : undefined });
+  };
+
+  return (
+    <div className="panel__flags-along" data-flags-along>
+      <span className="panel__subhead">Flags along</span>
+      <NumberField
+        label="Flag spacing"
+        value={spacing}
+        min={0.5}
+        step={0.5}
+        onCommit={setSpacing}
+      />
+      <label className="panel__field">
+        <span>Flag design</span>
+        <select
+          aria-label="Flag design"
+          value={entryId}
+          onChange={(e) => setEntryId(e.target.value)}
+        >
+          <option value="">Default</option>
+          {flagLibrary.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        className="panel__flags-along-btn"
+        data-action="add-flags-along"
+        onClick={onAdd}
+      >
+        Add flags along
+      </button>
+    </div>
+  );
+}
+
 /** The shared crenellations toggle + (when on) the merlon-size field. */
 function CrenellationFields({
   crenellated,
@@ -350,6 +411,7 @@ function GatehousePanel({ gatehouse }: { gatehouse: Gatehouse }) {
       />
 
       <PlaceOnTopButton />
+      <AddFlagsAlongControl hostId={gatehouse.id} />
 
       <button
         type="button"
@@ -433,6 +495,7 @@ function WallRunPanel({ wall }: { wall: WallRun }) {
       />
 
       <PlaceOnTopButton />
+      <AddFlagsAlongControl hostId={wall.id} />
 
       <button type="button" className="panel__delete" onClick={() => deletePiece(wall.id)}>
         Delete wall
