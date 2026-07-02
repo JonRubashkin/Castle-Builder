@@ -1946,6 +1946,140 @@ test.describe("Castle Builder — phases 1a–1b", () => {
   });
 });
 
+test.describe("Castle Builder — roofs (phase 2H)", () => {
+  test("toggle a roof on a tower via the panel; change pitch + roof material; toggle off keeps params", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    await page.getByRole("button", { name: "Tower" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => pieceCount(page)).toBe(1);
+
+    await page.getByRole("button", { name: "Select" }).click();
+    await clickCanvasCenter(page);
+    await expect.poll(() => selectedId(page)).not.toBeNull();
+
+    // Default: unroofed, with roof params already stored.
+    expect((await pieces(page))[0].roofed).toBe(false);
+    expect(typeof (await pieces(page))[0].roofPitch).toBe("number");
+
+    // Toggle the roof ON.
+    await page.getByLabel("Roof", { exact: true }).check();
+    await expect.poll(async () => (await pieces(page))[0].roofed).toBe(true);
+
+    // Change the pitch.
+    await page.getByLabel("Roof pitch").fill("4.5");
+    await expect.poll(async () => (await pieces(page))[0].roofPitch).toBe(4.5);
+
+    // Change the roof material (its own fill, separate from the wall material).
+    await page.getByLabel("Roof Fill").selectOption("thatch");
+    await expect
+      .poll(async () => (await pieces(page))[0].roofMaterial.kind)
+      .toBe("pattern");
+    expect((await pieces(page))[0].roofMaterial.pattern).toBe("thatch");
+    // The wall material is untouched (separate slot).
+    expect((await pieces(page))[0].material.kind).toBe("solid");
+
+    // Toggling the roof OFF keeps the stored pitch/material.
+    await page.getByLabel("Roof", { exact: true }).uncheck();
+    const p = (await pieces(page))[0];
+    expect(p.roofed).toBe(false);
+    expect(p.roofPitch).toBe(4.5); // retained
+    expect(p.roofMaterial.pattern).toBe("thatch"); // retained
+  });
+
+  test("raise-on-posts on a gatehouse", async ({ page }) => {
+    await openApp(page);
+
+    const gId = await page.evaluate(() =>
+      (window as any).__CASTLE_E2E__
+        .getState()
+        .addGatehouse({ position: { x: 0, y: 0 }, base: 0 }),
+    );
+    await page.evaluate((id) => {
+      (window as any).__CASTLE_E2E__.getState().selectPiece(id);
+    }, gId);
+    await expect(page.getByRole("heading", { name: "Gatehouse" })).toBeVisible();
+
+    await page.getByLabel("Roof", { exact: true }).check();
+    await expect.poll(async () => (await pieces(page))[0].roofed).toBe(true);
+    // Flush by default; the toggle raises it on posts.
+    expect((await pieces(page))[0].raisedOnPosts).toBe(false);
+    await page.getByLabel("Raised on posts").check();
+    await expect
+      .poll(async () => (await pieces(page))[0].raisedOnPosts)
+      .toBe(true);
+  });
+
+  test("wall-run and ramp covers exist in state (always posted)", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    const ids = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const wId = api
+        .getState()
+        .addWallRun({ position: { x: 0, y: 0 }, end: { x: 8, y: 0 }, base: 0 });
+      const rId = api.getState().addRamp({
+        position: { x: 20, y: 0 },
+        base: 0,
+        rotation: 0,
+        rise: 4,
+        run: 6,
+      });
+      api.getState().updatePiece(wId, { roofed: true });
+      api.getState().updatePiece(rId, { roofed: true });
+      return { wId, rId };
+    });
+
+    const all = await pieces(page);
+    const wall = all.find((p) => p.id === ids.wId);
+    const ramp = all.find((p) => p.id === ids.rId);
+    expect(wall.roofed).toBe(true);
+    // Wall run / ramp never carry a raisedOnPosts flag (always posted).
+    expect("raisedOnPosts" in wall).toBe(false);
+    expect(ramp.roofed).toBe(true);
+    expect("raisedOnPosts" in ramp).toBe(false);
+  });
+
+  test("a roof rides/moves/deletes with its host; crenellated + roofed coexist", async ({
+    page,
+  }) => {
+    await openApp(page);
+
+    const towerId = await page.evaluate(() => {
+      const api = (window as any).__CASTLE_E2E__;
+      const id = api.getState().addTower({ position: { x: 0, y: 0 }, base: 0 });
+      api.getState().updatePiece(id, { roofed: true, crenellated: true });
+      return id;
+    });
+
+    // Crenellations and the roof coexist in state.
+    let t = (await pieces(page)).find((p) => p.id === towerId);
+    expect(t.roofed).toBe(true);
+    expect(t.crenellated).toBe(true);
+
+    // Move the roofed tower: it stays roofed and moves with the host.
+    await page.evaluate((id) => {
+      const api = (window as any).__CASTLE_E2E__;
+      api.getState().beginTransient();
+      api.getState().setPiecePositionTransient(id, { x: 12, y: 6 });
+      api.getState().commitTransient();
+    }, towerId);
+    t = (await pieces(page)).find((p) => p.id === towerId);
+    expect(t.position).toEqual({ x: 12, y: 6 });
+    expect(t.roofed).toBe(true);
+
+    // Delete the host: the roof goes with it (no floating roof).
+    await page.evaluate((id) => {
+      (window as any).__CASTLE_E2E__.getState().deletePiece(id);
+    }, towerId);
+    await expect.poll(() => pieceCount(page)).toBe(0);
+  });
+});
+
 test.describe("Castle Builder — delete-drop (riding cleanup)", () => {
   test("deleting the base of a stack re-seats the survivors; one undo restores", async ({
     page,
