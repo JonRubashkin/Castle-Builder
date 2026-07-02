@@ -40,7 +40,8 @@ import {
   saveNewEntry,
   type FlagLibrary,
 } from "../flags/library";
-import { resolveSupportAt, type PlacementMode } from "../geometry/support";
+import { flatTopWorldY, resolveSupportAt, type PlacementMode } from "../geometry/support";
+import { allRidersOf, RIDER_BASE_TOLERANCE } from "../geometry/riders";
 import { resolvePlaceOnTop } from "../geometry/placeOnTop";
 import { flagPositionsAlong, type FlagAlongOptions } from "../geometry/flagAlong";
 import { groundHeightAt } from "../geometry/ground";
@@ -501,7 +502,34 @@ export const useStore = create<StoreState>((set, get) => {
     updatePiece: (id, patch) => {
       commit((design) => {
         const piece = design.pieces.find((p) => p.id === id);
-        if (piece) Object.assign(piece, patch);
+        if (!piece) return design;
+
+        // RIDERS (phase 2G) — ride on resize/raise. An edit that raises the piece's
+        // FLAT TOP (its height) or its base moves the surface riders sit on; the
+        // riders must move by the same vertical delta so they stay ON TOP instead
+        // of being buried or left floating. Capture the pre-edit top + the rider
+        // set BEFORE mutating (the transitive stack, cycle-safe, once each). Only
+        // edits that change base + height matter; a horizontal-only change
+        // (material, radius, width/depth, rotation) leaves the top unchanged → the
+        // delta is 0 → riders are untouched (we do NOT chase a shrunken footprint —
+        // don't auto-mutate surprisingly). All in ONE undo step with the edit.
+        const topBefore = flatTopWorldY(piece); // null for non-surface pieces
+        const riders = topBefore === null ? [] : allRidersOf(piece, design.pieces);
+
+        Object.assign(piece, patch);
+
+        if (riders.length > 0) {
+          const topAfter = flatTopWorldY(piece);
+          if (topBefore !== null && topAfter !== null) {
+            const delta = topAfter - topBefore; // Δbase + Δheight
+            if (Math.abs(delta) > RIDER_BASE_TOLERANCE) {
+              const riderIds = new Set(riders.map((r) => r.id));
+              for (const p of design.pieces) {
+                if (riderIds.has(p.id)) p.base += delta;
+              }
+            }
+          }
+        }
         return design;
       });
     },
@@ -640,41 +668,73 @@ export const useStore = create<StoreState>((set, get) => {
 
     setPiecePositionTransient: (id, position) => {
       set((state) => {
-        const design = clone(state.design);
+        // Base the transient off the PRE-DRAG snapshot when an interaction is in
+        // progress, so riders are computed from the pre-move geometry and each is
+        // moved exactly once by the TOTAL delta (idempotent across the repeated
+        // mid-drag calls a gizmo fires — never re-evaluated frame to frame, which
+        // could double-move or drop a rider whose overlap drifts). Falls back to
+        // the live design if no snapshot exists.
+        const source = state.pendingSnapshot ?? state.design;
+        const design = clone(source);
         const piece = design.pieces.find((p) => p.id === id);
-        if (piece) {
-          // Two-endpoint pieces (a wall run, or a SEGMENT moat) move as a rigid
-          // body: shift BOTH endpoints by the same delta so the piece keeps its
-          // shape. `position` is the new START anchor.
-          const twoPoint =
-            piece.kind === "wallRun" ||
-            (piece.kind === "moat" && piece.shape === "segment");
-          if (twoPoint && "end" in piece && piece.end) {
-            const dx = position.x - piece.position.x;
-            const dy = position.y - piece.position.y;
-            piece.position = { ...position };
-            piece.end = { x: piece.end.x + dx, y: piece.end.y + dy };
-          } else {
-            piece.position = { ...position };
-          }
-          // The moat is GROUND-ONLY (no face-attach); its base routes through the
-          // ground-height rule, never an existing piece's top. Every other piece
-          // resolves its base through the SAME mode-aware support rule the
-          // placement path uses (resolveSupportAt): groundHeightAt over open
-          // ground, a piece top via face-attach. The piece being moved is excluded
-          // so it can't seat on its own footprint. This is the single source of
-          // truth — no hardcoded ground-y and no parallel placement logic; the
-          // active placement mode is read HERE and passed straight through.
-          // (Walls resolve at the start anchor, `position`.)
-          if (piece.kind === "moat") {
-            // A moat is inherently ground-only; the toggle doesn't change that.
-            piece.base = groundOnlyBase(piece.position);
-          } else {
-            const others = design.pieces.filter((p) => p.id !== id);
-            piece.base = resolveSupportAt(piece.position, others, state.placementMode).base;
-          }
-          return { design };
+        if (!piece) return { design: state.design };
+
+        // The total horizontal delta from the piece's ORIGINAL anchor (in the
+        // snapshot) to the requested new anchor.
+        const dx = position.x - piece.position.x;
+        const dy = position.y - piece.position.y;
+
+        // RIDERS (phase 2G): everything resting on this piece, transitively,
+        // computed ONCE from the pre-move geometry and cycle-safe. They ride the
+        // move rigidly by the same horizontal delta — as ONE undo step (the
+        // commit pushes a single snapshot on mouse-up). A move does not change the
+        // host's top height, so riders keep their base; they RIDE, they do not
+        // re-seat their own support mid-move.
+        const riderIds = new Set(allRidersOf(piece, design.pieces).map((r) => r.id));
+
+        // Two-endpoint pieces (a wall run, or a SEGMENT moat) move as a rigid
+        // body: shift BOTH endpoints by the same delta so the piece keeps its
+        // shape. `position` is the new START anchor.
+        const twoPoint =
+          piece.kind === "wallRun" ||
+          (piece.kind === "moat" && piece.shape === "segment");
+        if (twoPoint && "end" in piece && piece.end) {
+          piece.position = { ...position };
+          piece.end = { x: piece.end.x + dx, y: piece.end.y + dy };
+        } else {
+          piece.position = { ...position };
         }
+        // The moat is GROUND-ONLY (no face-attach); its base routes through the
+        // ground-height rule, never an existing piece's top. Every other piece
+        // resolves its base through the SAME mode-aware support rule the placement
+        // path uses (resolveSupportAt): groundHeightAt over open ground, a piece
+        // top via face-attach. The moved piece AND its riders are excluded so it
+        // can't seat on its own footprint OR climb onto something riding it. This
+        // is the single source of truth — no hardcoded ground-y and no parallel
+        // placement logic; the active placement mode is read HERE and passed
+        // straight through. (Walls resolve at the start anchor, `position`.)
+        if (piece.kind === "moat") {
+          // A moat is inherently ground-only; the toggle doesn't change that.
+          piece.base = groundOnlyBase(piece.position);
+        } else {
+          const others = design.pieces.filter(
+            (p) => p.id !== id && !riderIds.has(p.id),
+          );
+          piece.base = resolveSupportAt(piece.position, others, state.placementMode).base;
+        }
+
+        // Translate every rider rigidly by the same horizontal delta (two-point
+        // riders shift both endpoints). Their base is untouched.
+        if ((dx !== 0 || dy !== 0) && riderIds.size > 0) {
+          for (const rider of design.pieces) {
+            if (!riderIds.has(rider.id)) continue;
+            rider.position = { x: rider.position.x + dx, y: rider.position.y + dy };
+            if ("end" in rider && rider.end) {
+              rider.end = { x: rider.end.x + dx, y: rider.end.y + dy };
+            }
+          }
+        }
+
         return { design };
       });
     },

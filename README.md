@@ -41,6 +41,15 @@ runs client-side — no backend.
 > also lets you tweak a flag's **pole height / cloth width** in one place (piece
 > properties — not saved to the library). **Deferred:** freeform raster paint
 > (Approach B / 2Ff), flag animation/waving, and **copy/paste** (not yet in the app).
+>
+> **Riding (phase 2G) is built.** Stacked pieces **move and rise with the piece
+> beneath them**: move a piece and everything resting on its top rides along; raise
+> a piece's height (or base) and its riders rise to stay on top — recursively, each
+> as **one undo step**. Riders are **computed fresh from geometry** ("what is on the
+> top right now?", reusing the same support rule as face-attach) — there are **no
+> stored parent/child links, no relationship graph, and no reconciliation**. A flag
+> on a tower rides; nothing rides a moat; a horizontal-only edit (material, radius,
+> rotation) moves no riders. A wrong guess is always undoable.
 
 ## Tech stack
 
@@ -77,7 +86,8 @@ npm run test:e2e   # Playwright end-to-end tests (builds + previews first)
 | **Flag tool** | Click the ground to plant a **flag** (a cloth on a pole) at the grid-snapped cursor — one at a time; same ghost / face-attach behavior as the tower, so a flag can plant on the ground or **on top of a piece** (a flag on a tower top is a real castle move). Each flag carries its **own embedded heraldic design** (seeded with a default; edit it via **Edit design…**, or apply a saved one from the flag library), rendered onto the cloth. `Esc` cancels; the tool stays active. A flag is **not** a face-attach **target** — nothing stacks on a flag (its top is a pole/cloth). |
 | **Face-attach** | With the tower / gatehouse / wall / **gate** / **ramp** / **flag** tool, place over an existing piece's footprint: the new piece (or a ramp's **bottom** anchor) seats on that piece's **top** (its stored base = the lower piece's top), instead of on the ground. A wall seats at its **start** anchor's support height. (The moat is exempt — it always seats on the ground; and the ramp / **flag** are never face-attach **targets**.) |
 | **Select tool** | Click a piece to select it; click empty ground to deselect. |
-| Move a selected piece | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**, subject to the **Keep on ground** toggle below. For a wall, the gizmo moves the **whole wall** (both endpoints together). |
+| Move a selected piece | Drag the on-screen translate gizmo (snaps to 0.1 m; one undo step per drag). Moving uses the **same face-attach rule as placement**, subject to the **Keep on ground** toggle below. For a wall, the gizmo moves the **whole wall** (both endpoints together). Anything **resting on** the moved piece **rides along with it** (see **Riding** below). |
+| **Riding** | Stacked pieces **follow the piece beneath them**. Move a piece and everything stacked on its top moves with it; raise a piece's **height** (or base) and its riders **rise to stay on top** — recursively (a whole stack rides the bottom), each as **one undo step**. Riders are figured out **fresh from the geometry** each time (what is sitting on the top right now, using the same rule as face-attach) — there's **no saved "attached to" link**, so nothing to get out of sync. A flag on a tower rides the tower; a moat carries nothing (it has no top). A **horizontal-only** edit (material, radius, rotation) moves no riders. It's a best-guess convenience, and a wrong guess is just **one Ctrl+Z**. |
 | **Keep on ground** | A toggle tab on the **right of the viewport**, shown **while a piece is selected** (hidden otherwise). When **on**, a moved piece ignores face-attach and always seats on the ground (never climbs onto other pieces); when **off** (the default), moving uses the normal face-attach rule. It **persists until you turn it off** (a saved preference — **not** part of the design and **not** in undo history) and applies to the **move/drag** path (initial placement of a new piece is unaffected). |
 | **Place on top of…** | A button in a selected piece's properties panel (every piece **except the moat**). Click it to **arm** a one-shot action (a banner + crosshair prompt you to click a target); the **next click on another piece** seats the selected piece on **that piece's top**, centered on it (a wall recenters both endpoints), as **one undo step** — the piece stays selected and the action ends. Overhang is fine (a larger piece just overhangs). **Excluded targets: the moat, ramps, and flags** (no flat top) — clicking one stays armed. `Esc`, a click on empty ground, or clicking the selected piece itself **cancels** with the selection unchanged. |
 | Reshape a wall | A selected wall shows a **draggable handle at each end** — drag one to move that endpoint only (it **snaps to a nearby tower / gatehouse anchor**, shown by a snap ring, else the 0.1 m grid; one undo step). Start/End coordinates are also editable as number fields in the panel (the precise/keyboard path — plain grid, no anchor snap). |
@@ -239,7 +249,8 @@ src/
                        footprints for tower/gatehouse/wall/gate/moat/ramp/flag,
                        the shared oriented-rectangle footprint, the ring footprint,
                        the ramp/stair builder + two-point connection helper,
-                       support/face-attach resolution, wall-endpoint anchor
+                       support/face-attach resolution, the geometry-derived
+                       riders helper (riders.ts, phase 2G), wall-endpoint anchor
                        snapping, iso camera) — no React, no store
   materials/           MaterialRef → THREE factory + procedural pattern textures
                        (stone/brick/thatch/opaque-water), generated at runtime;
@@ -296,7 +307,14 @@ Build command `npm run build`, output `dist/`.
   centers, and the moat/ramp are excluded targets) plus its **store action**
   (arm → target → one undoable placement, stays selected; invalid-target no-op;
   self-click cancel), the **flag builder** (pole + cloth dimensions, the
-  aspect-derived cloth height, the cloth footprint), the **v1 → v2 migration**
+  aspect-derived cloth height, the cloth footprint), the **riders helper (phase
+  2G)** — `ridersOf`/`allRidersOf` (a piece on a tower is a rider; near-but-not-
+  overlapping / wrong-height is not; the transitive set of a 3-high stack; each
+  piece once even through a diamond; a contrived cycle terminates; a flag on a
+  tower is included; nothing rides a moat; it matches `resolveSupportAt`) and the
+  **store riding paths** (move applies one delta to the whole set as one undo step;
+  a resize/raise applies the vertical delta to riders; non-height edits move
+  nothing), the **v1 → v2 migration**
   (a v1 fixture loads as v2 with its pieces untouched) and **flag validation** (a
   flag round-trips its embedded design; malformed flags are rejected), and schema
   validation.
@@ -319,7 +337,10 @@ Build command `npm run build`, output `dist/`.
   (place with the Flag tool → an embedded design + default params; select / edit /
   rotate / delete; face-attach onto a tower top with an undoable move; nothing
   stacks onto a flag; **Export → Import round-trips the embedded design** through
-  the validated load path), and **New Castle** (Cancel/`Esc` keep the
+  the validated load path), **riding (phase 2G)** (moving a tower moves a flag on
+  its top by the same delta with one undo reversing both; a 3-high stack all rides
+  the bottom; raising a tower's height raises its rider while a material edit moves
+  nothing; a piece near-but-not-on-top does not ride), and **New Castle** (Cancel/`Esc` keep the
   design; confirm clears it + selection + undo history and survives a reload as
   empty). They read app state
   through a test-only accessor exposed at `window.__CASTLE_E2E__` when the page is
